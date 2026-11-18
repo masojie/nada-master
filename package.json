@@ -1,11 +1,11 @@
 {
   "name": "nada-master",
   "version": "1.0.0",
-  "description": "Deterministic DSP mastering workstation (browser).",
+  "description": "Deterministic DSP mastering workstation (browser, no AI).",
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "python3 build.py",
-    "test": "node tests/t_units.mjs && node tests/t_codec_meter.mjs"
+    "build": "node build.mjs",
+    "test": "node tests/t_units.mjs && node tests/t_presets.mjs"
   }
 }

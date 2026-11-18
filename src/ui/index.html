@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content='width=device-width,initial-scale=1'>
+<title>NADA Master - DSP Mastering Workstation</title>
+<!--CSS-->
+</head>
+<body>
+<header class=top>
+  <div class=brand><div class=logo>N</div><div><b>NADA MASTER</b><span>Professional DSP Mastering Workstation · deterministic, no AI</span></div></div>
+  <div class=status id=status>Ready - upload a track to begin</div>
+  <div class=seg id=uiMode><button data-v=simple class=on>Simple</button><button data-v=advanced>Advanced</button></div>
+</header>
+<main class=grid>
+  <section class='col left'>
+    <div class=card><h3><i>1</i>Upload audio</h3>
+      <label class=drop id=drop><input type=file id=file accept='.wav,.flac,.aif,.aiff,.mp3,audio/*'><b>Drop a file or click to browse</b><span>WAV · FLAC · AIFF · MP3 - 44.1 to 192 kHz - mono / stereo</span></label>
+      <div class=info id=fileInfo>Your audio is processed locally in the browser and never uploaded.</div></div>
+    <div class=card><h3><i>2</i>Genre preset</h3>
+      <label>Category<select id=cat></select></label>
+      <label>Genre<select id=genre></select></label>
+      <p class=desc id=genreDesc></p>
+      <label>Voicing<select id=voicing></select></label>
+      <div class=lbl>Mastering style</div><div class=modes id=modes></div>
+      <div class=row2><label>Loudness target<select id=loud></select></label>
+        <label>True-peak ceiling<select id=ceil><option value=-1>-1.0 dBTP</option><option value=-1.5>-1.5 dBTP</option><option value=-2>-2.0 dBTP</option></select></label></div>
+      <label id=customWrap class=hide>Custom target (LUFS)<input type=number id=custom value=-12 min=-30 max=-6 step=0.5></label>
+      <label class=chk><input type=checkbox id=adaptive checked> Adaptive correction (rule-based, from analysis)</label></div>
+    <div class=card><h3><i>3</i>Master</h3>
+      <button class=master id=btnMaster disabled>MASTER</button>
+      <div class=prog><div id=progBar></div></div><div class=small id=progTxt></div></div>
+    <div class=card><h3><i>4</i>Export</h3>
+      <div class=row2><label>Format<select id=fmt><option value=wav:24>WAV 24-bit</option><option value=wav:16>WAV 16-bit</option><option value=wav:32>WAV 32-bit float</option><option value=flac:24>FLAC 24-bit</option><option value=flac:16>FLAC 16-bit</option></select></label>
+        <label>Sample rate<select id=sr><option value=0>Original</option><option>44100</option><option>48000</option><option>88200</option><option>96000</option></select></label></div>
+      <label>Dither<select id=dither><option value=auto>Auto (TPDF / noise-shaped)</option><option value=tpdf>TPDF flat</option><option value=shaped>Noise-shaped (16-bit)</option><option value=none>None</option></select></label>
+      <button class=btn id=btnExport disabled>Export &amp; verify</button><div id=exportOut class=small></div></div>
+  </section>
+  <section class='col center'>
+    <div class=card><div class=wavehead><span>Waveform</span><span class=legend><i class='lg a'></i>Original <i class='lg b'></i>Mastered <i class='lg gr'></i>Limiter GR</span></div>
+      <canvas id=wave height=170></canvas>
+      <div class=transport><button class='btn sq' id=btnPlay disabled>▶</button><button class='btn sq' id=btnStop disabled>■</button>
+        <span class=time id=time>0:00.0 / 0:00.0</span><label class=chk><input type=checkbox id=loop> Loop</label>
+        <div class=ab><button id=abA class=on>A · ORIGINAL</button><button id=abB disabled>B · MASTERED</button></div>
+        <label class=chk><input type=checkbox id=lmatch checked> Loudness-matched A/B</label></div>
+      <div class=delta id=delta></div></div>
+    <div class=card><div class=meters id=meters></div></div>
+    <div class=card><div class=wavehead><span>Spectrum analyzer</span><span class=legend><i class='lg live'></i>Live <i class='lg a'></i>Original avg <i class='lg b'></i>Master avg</span></div><canvas id=spec height=220></canvas></div>
+    <div class='card hide' id=advCard><div class=wavehead><span>Processing chain - 12 stages (Advanced)</span><button class='btn small' id=btnReset>Reset to preset</button></div><div id=chain></div></div>
+  </section>
+  <section class='col right'>
+    <div class=card><h3>Analysis &amp; comparison</h3><table class=tbl id=cmp></table></div>
+    <div class=card><h3>Detected issues</h3><div id=problems class='list small'>Upload a track to analyse it.</div></div>
+    <div class=card><h3>Adaptive adjustments</h3><div id=actions class='list small'>-</div></div>
+    <div class=card><h3>Quality control</h3><div id=qc class='list small'>Master a track to run QC.</div></div>
+  </section>
+</main>
+<footer>NADA Master · ITU-R BS.1770-4 / EBU R128 metering · true-peak lookahead limiter · LR4 multiband · M/S imaging · oversampled saturation and clipping · TPDF / noise-shaped dither · WAV / FLAC export with bit-exact verification</footer>
+<!--WORKER-->
+<!--APP-->
+</body>
+</html>
