@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tes dan build (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+
+      # Tanpa "npm install": proyek ini tidak punya dependency.
+      - name: Tes
+        run: npm test
+
+      - name: Build (sama seperti Vercel)
+        run: npm run build
+
+      - name: Simpan hasil build
+        if: matrix.node == 22
+        uses: actions/upload-artifact@v7
+        with:
+          name: nada-master-dist
+          path: dist
+          retention-days: 14
