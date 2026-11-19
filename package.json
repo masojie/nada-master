@@ -6,6 +6,8 @@
   "private": true,
   "scripts": {
     "build": "node build.mjs",
-    "test": "node tests/t_units.mjs && node tests/t_presets.mjs"
+    "test": "node tests/run-all.mjs",
+    "test:fast": "node tests/run-all.mjs --fast",
+    "check": "node tests/run-all.mjs && node build.mjs"
   }
 }

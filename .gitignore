@@ -1,5 +1,9 @@
 node_modules/
+dist/
 testdata/
+.vercel/
 *.wav
 *.flac
 *.mp3
+*.log
+.DS_Store
