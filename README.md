@@ -115,16 +115,18 @@ src/presets/  katalog 68 genre, arketipe, voicing, validator
 src/ui/       antarmuka (index.html, app.js, styles.css)
 src/worker.js worker DSP yang dipanggil UI
 build.mjs     bundler tanpa dependency
-tests/        tes unit dan tes engine
+tests/        suite tes (t_*.mjs), lib/ berisi harness dan generator sinyal sintetis
+AGENTS.md     aturan kerja dan panduan untuk AI dan developer
 ```
 
 ## Tes
 
 ```bash
-npm test
+npm test             # semua tes, sekitar 1,5 menit
+npm run test:fast    # tanpa tes lambat, sekitar 5 detik
 ```
 
-Menjalankan `tests/t_units.mjs` dan `tests/t_presets.mjs`. Tes lain (`t_modules.mjs`, `t_codec_meter.mjs`) bisa dijalankan manual dengan `node tests/<nama>.mjs`. `tests/t_chain.mjs` butuh file audio uji `testdata/Funkorama.wav` yang tidak disertakan di repo, jadi tidak bisa jalan tanpa file itu.
+Semua tes memakai sinyal sintetis yang deterministik, jadi tidak butuh file audio dari luar. Yang diuji: unit DSP, katalog preset, codec dan meter, chain end-to-end (true peak, loudness, determinisme), export semua format dan sample rate, kasus tepi (sunyi, mono, sangat pendek, clipping, 192 kHz), hasil build, bundel worker yang dijalankan lewat protokol pesan yang sama dengan UI, dan pagar sintaks untuk bundler. CI di GitHub Actions menjalankan semuanya di setiap commit. Panduan lengkap untuk menulis tes ada di `AGENTS.md`.
 
 ## Batasan yang perlu diketahui
 
