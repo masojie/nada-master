@@ -25,7 +25,7 @@ export const LIM_STYLES = { transparent: { slow: 5, double: true }, balanced: { 
 export function runLimiter(chans, p, fs, opts = {}) {
   const N = chans[0].length, ceil = dbToLin(p.ceilingDb - 0.02 - (opts.marginDb || 0));
   const F = p.tpDetect === false ? 1 : tpFactorFor(fs), tp = new TPInterp(F), seg = new Float32Array(N), tmp = new Float32Array(N);
-  for (const x of chans) { tp.segMax(x, tmp); for (let i = 0; i < N; i++) if (tmp[i] > seg[i]) seg[i] = tmp[i]; }
+  for (const x of chans) { tp.segMax(x, tmp, ceil); for (let i = 0; i < N; i++) if (tmp[i] > seg[i]) seg[i] = tmp[i]; }
   const g = tmp; let prev = 0;
   for (let i = 0; i < N; i++) { const s = seg[i], pk = s > prev ? s : prev; prev = s; g[i] = pk > ceil ? ceil / pk : 1; }
   const L = Math.max(1, Math.round((p.lookaheadMs || 3) * 0.001 * fs)), st = LIM_STYLES[p.style] || LIM_STYLES.balanced;

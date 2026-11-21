@@ -56,23 +56,25 @@ export class Oversampler {
     for (let s = this.stages.length - 1; s >= 0; s--) { const dst = s === 0 ? out : this._t(8 + s, len / 2); this.stages[s].down(cur, len / 2, dst); cur = dst; len /= 2; }
   }
 }
-// True-peak interpolator (windowed-sinc polyphase). segMax[i] = max |x| over [i, i+1) incl. interpolated points
-export function tpFactorFor(fs) { return fs < 60000 ? 4 : fs < 120000 ? 2 : 1; }
+// True-peak interpolator: windowed-sinc polyphase, 48 taps per phase (Kaiser beta 8). segMax[i] = max |x| over [i, i+1) incl. interpolated points.
+// 4x below 120 kHz and 2x above (BS.1770-4 asks for an effective rate of at least 192 kHz). The former 16-tap kernel under-read
+// HF-dense material by up to 1.3 dB.
+export function tpFactorFor(fs) { return fs < 120000 ? 4 : 2; }
+function tpPhases(F, taps, beta) {
+  const h = taps >> 1, ph = [];
+  for (let p = 1; p < F; p++) { const u = p / F, c = new Float64Array(taps); let s = 0; for (let j = 0; j < taps; j++) { const t = u - (j - (h - 1)); c[j] = sinc(t) * kaiserWin(t / h, beta); s += c[j]; } for (let j = 0; j < taps; j++) c[j] /= s; ph.push(c); }
+  return ph;
+}
 export class TPInterp {
-  constructor(factor, taps = 16, beta = 6.5) {
-    this.F = factor; this.T = taps; this.h = taps >> 1; this.ph = [];
-    for (let p = 1; p < factor; p++) {
-      const u = p / factor, c = new Float64Array(taps); let s = 0;
-      for (let j = 0; j < taps; j++) { const t = u - (j - (this.h - 1)); c[j] = sinc(t) * kaiserWin(t / this.h, beta); s += c[j]; }
-      for (let j = 0; j < taps; j++) c[j] /= s;
-      this.ph.push(c);
-    }
+  constructor(factor, taps = 48, beta = 8) {
+    this.F = factor; this.T = taps; this.h = taps >> 1; this.ph = tpPhases(factor, taps, beta);
+    // cheap 16-tap pre-pass plus the rigorous bound |y_long - y_short| <= D * max|x| over the long kernel support
+    this.cs = taps > 16 && factor > 1 ? tpPhases(factor, 16, 6.5) : null; this.D = 0;
+    if (this.cs) for (let p = 0; p < this.ph.length; p++) { let d = 0; const a = this.ph[p], b = this.cs[p], off = this.h - 8; for (let j = 0; j < taps; j++) { const k = j - off; d += Math.abs(a[j] - (k >= 0 && k < 16 ? b[k] : 0)); } if (d > this.D) this.D = d; }
   }
-  segMax(x, out) {
-    const N = x.length, T = this.T, h = this.h, P = this.ph, np = P.length;
-    if (!np) { for (let i = 0; i < N; i++) out[i] = Math.abs(x[i]); return; }
-    const lo = h - 1, hi = N - h;
-    for (let i = 0; i < N; i++) {
+  _run(x, out, P, T, h, i0, i1) {
+    const N = x.length, np = P.length, lo = h - 1, hi = N - h;
+    for (let i = i0; i < i1; i++) {
       let m = Math.abs(x[i]); const base = i - h + 1;
       if (i >= lo && i < hi) {
         for (let p = 0; p < np; p++) { const c = P[p]; let a = 0; for (let j = 0; j < T; j++) a += c[j] * x[base + j]; if (a < 0) a = -a; if (a > m) m = a; }
@@ -80,6 +82,19 @@ export class TPInterp {
         for (let p = 0; p < np; p++) { const c = P[p]; let a = 0; for (let j = 0; j < T; j++) { const k = base + j; if (k >= 0 && k < N) a += c[j] * x[k]; } if (a < 0) a = -a; if (a > m) m = a; }
       }
       out[i] = m;
+    }
+  }
+  // thr > 0: every value that can reach thr is computed exactly with the long kernel; the others stay at the cheap estimate (provably < thr)
+  segMax(x, out, thr = 0) {
+    const N = x.length;
+    if (!this.ph.length) { for (let i = 0; i < N; i++) out[i] = Math.abs(x[i]); return; }
+    if (!this.cs || !(thr > 0)) { this._run(x, out, this.ph, this.T, this.h, 0, N); return; }
+    this._run(x, out, this.cs, 16, 8, 0, N);
+    const h = this.h, D = this.D, dq = new Int32Array(N); let hd = 0, tl = 0;
+    for (let i = -h; i < N; i++) {
+      const add = i + h; if (add < N) { const v = Math.abs(x[add]); while (tl > hd && Math.abs(x[dq[tl - 1]]) <= v) tl--; dq[tl++] = add; }
+      if (i < 0) continue; while (dq[hd] < i - h + 1) hd++;
+      if (out[i] + D * Math.abs(x[dq[hd]]) >= thr) this._run(x, out, this.ph, this.T, h, i, i + 1);
     }
   }
 }

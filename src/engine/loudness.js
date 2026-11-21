@@ -50,12 +50,15 @@ export function loudnessFromHops({ e, cnt, hop }) {
 }
 export function measureLoudness(chans, fs) { return loudnessFromHops(hopEnergies(chans, fs)); }
 export function integratedLufs(chans, fs) { return measureLoudness(chans, fs).integrated; }
+// overall and per-channel values are exact; the per-hop display series may use the cheap estimate below the channel's sample peak
 export function measureTruePeak(chans, fs, hop = 0) {
   const F = tpFactorFor(fs), tp = new TPInterp(F), N = chans[0].length, seg = new Float32Array(N);
   const nHop = hop ? Math.ceil(N / hop) : 0, series = hop ? new Float32Array(nHop) : null, perCh = [];
   let mx = 0;
   for (const x of chans) {
-    tp.segMax(x, seg); let m = 0;
+    let sp = 0; for (let i = 0; i < N; i++) { const a = x[i] < 0 ? -x[i] : x[i]; if (a > sp) sp = a; }
+    if (sp > 0) tp.segMax(x, seg, sp); else seg.fill(0);
+    let m = 0;
     for (let i = 0; i < N; i++) { const v = seg[i]; if (v > m) m = v; if (series) { const k = (i / hop) | 0; if (v > series[k]) series[k] = v; } }
     perCh.push(m); if (m > mx) mx = m;
   }
