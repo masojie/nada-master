@@ -11,22 +11,32 @@ export function detectFormat(u8) {
 }
 export function id3Size(u8) { if (u8[0] === 0x49 && u8[1] === 0x44 && u8[2] === 0x33) return 10 + ((u8[6] & 127) << 21 | (u8[7] & 127) << 14 | (u8[8] & 127) << 7 | (u8[9] & 127)) + ((u8[5] & 0x10) ? 10 : 0); return 0; }
 function findFlacAfterId3(u8) { const o = id3Size(u8); return (u8[o] === 0x66 && u8[o + 1] === 0x4C && u8[o + 2] === 0x61 && u8[o + 3] === 0x43) ? o : -1; }
+// header sanity limits: a malformed header must fail fast with a clear message (a 0-channel WAV used to loop forever)
+const MAX_CH = 32, MIN_SR = 1000, MAX_SR = 768000;
 export function decodeWav(u8) {
   const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
   let p = 12, fmt = null, dataOff = -1, dataLen = 0;
   while (p + 8 <= u8.length) {
     const id = str4(dv, p); const sz = dv.getUint32(p + 4, true);
     if (id === 'fmt ') {
+      if (sz < 16 || p + 24 > u8.length) throw new Error('Invalid WAV: fmt chunk too short');
       let tag = dv.getUint16(p + 8, true); const ch = dv.getUint16(p + 10, true), sr = dv.getUint32(p + 12, true), bits = dv.getUint16(p + 22, true);
-      if (tag === 0xFFFE && sz >= 40) tag = dv.getUint16(p + 32, true);
-      fmt = { tag, ch, sr, bits };
-    } else if (id === 'data') { dataOff = p + 8; dataLen = (sz === 0 || sz === 0xFFFFFFFF || dataOff + sz > u8.length) ? u8.length - dataOff : sz; break; }
+      if (tag === 0xFFFE && sz >= 40 && p + 34 <= u8.length) tag = dv.getUint16(p + 32, true);
+      fmt = { tag, ch, sr, bits }; if (dataOff >= 0) break;
+    } else if (id === 'data') {
+      dataOff = p + 8; dataLen = (sz === 0 || sz === 0xFFFFFFFF || dataOff + sz > u8.length) ? u8.length - dataOff : sz;
+      if (fmt || sz === 0 || sz === 0xFFFFFFFF || dataOff + sz > u8.length) break; // otherwise keep scanning: fmt may follow data
+    }
     if (sz === 0xFFFFFFFF) break;
     p += 8 + sz + (sz & 1);
   }
   if (!fmt || dataOff < 0) throw new Error('Invalid WAV: missing fmt or data chunk');
-  const { tag, ch, sr, bits } = fmt, bps = bits >> 3, frames = Math.floor(dataLen / (bps * ch));
+  const { tag, ch, sr, bits } = fmt;
   if (![1, 3].includes(tag)) throw new Error('Unsupported WAV encoding (format tag ' + tag + ')');
+  if (ch < 1 || ch > MAX_CH) throw new Error('Invalid WAV: ' + ch + ' channels');
+  if (sr < MIN_SR || sr > MAX_SR) throw new Error('Invalid WAV: sample rate ' + sr + ' Hz');
+  if (tag === 3 ? bits !== 32 && bits !== 64 : ![8, 16, 24, 32].includes(bits)) throw new Error('Unsupported WAV bit depth ' + bits);
+  const bps = bits >> 3, frames = Math.floor(dataLen / (bps * ch));
   const out = Array.from({ length: ch }, () => new Float32Array(frames));
   let o = dataOff;
   for (let i = 0; i < frames; i++) for (let c = 0; c < ch; c++) {
@@ -35,8 +45,7 @@ export function decodeWav(u8) {
     else if (bits === 16) v = dv.getInt16(o, true) / 32768;
     else if (bits === 24) { let x = u8[o] | (u8[o + 1] << 8) | (u8[o + 2] << 16); if (x & 0x800000) x -= 0x1000000; v = x / 8388608; }
     else if (bits === 32) v = dv.getInt32(o, true) / 2147483648;
-    else if (bits === 8) v = (u8[o] - 128) / 128;
-    else throw new Error('Unsupported WAV bit depth ' + bits);
+    else v = (u8[o] - 128) / 128;
     out[c][i] = v; o += bps;
   }
   return { chans: out, fs: sr, info: { codec: tag === 3 ? 'WAV float' : 'WAV PCM', bitDepth: bits, isFloat: tag === 3, channels: ch } };
@@ -50,15 +59,18 @@ export function decodeAiff(u8) {
   let p = 12, ch = 0, frames = 0, bits = 0, sr = 0, comp = 'NONE', dOff = -1;
   while (p + 8 <= u8.length) {
     const id = str4(dv, p), sz = dv.getUint32(p + 4);
-    if (id === 'COMM') { ch = dv.getInt16(p + 8); frames = dv.getUint32(p + 10); bits = dv.getInt16(p + 14); sr = readExt80(dv, p + 16); if (isC && sz >= 22) comp = str4(dv, p + 26); }
-    else if (id === 'SSND') { dOff = p + 16 + dv.getUint32(p + 8); }
+    if (id === 'COMM') { if (p + 26 > u8.length) throw new Error('Invalid AIFF: COMM chunk truncated'); ch = dv.getInt16(p + 8); frames = dv.getUint32(p + 10); bits = dv.getInt16(p + 14); sr = readExt80(dv, p + 16); if (isC && sz >= 22 && p + 30 <= u8.length) comp = str4(dv, p + 26); }
+    else if (id === 'SSND') { if (p + 16 > u8.length) throw new Error('Invalid AIFF: SSND chunk truncated'); dOff = p + 16 + dv.getUint32(p + 8); }
     p += 8 + sz + (sz & 1);
   }
   if (!ch || dOff < 0) throw new Error('Invalid AIFF: missing COMM or SSND');
+  if (ch < 1 || ch > MAX_CH) throw new Error('Invalid AIFF: ' + ch + ' channels');
+  if (!(sr >= MIN_SR && sr <= MAX_SR)) throw new Error('Invalid AIFF: sample rate ' + sr + ' Hz');
   const le = comp === 'sowt', fl = ['fl32', 'FL32', 'fl64', 'FL64'].includes(comp);
   if (!['NONE', 'sowt', 'twos', 'fl32', 'FL32', 'fl64', 'FL64'].includes(comp)) throw new Error('Unsupported AIFF-C compression ' + comp);
   if (comp.toLowerCase() === 'fl64') bits = 64; else if (fl) bits = 32;
-  const bps = Math.ceil(bits / 8); frames = Math.min(frames, Math.floor((u8.length - dOff) / (bps * ch)));
+  if (!fl && (bits < 1 || bits > 32)) throw new Error('Unsupported AIFF bit depth ' + bits);
+  const bps = Math.ceil(bits / 8); frames = Math.min(frames, Math.max(0, Math.floor((u8.length - dOff) / (bps * ch))));
   const out = Array.from({ length: ch }, () => new Float32Array(frames)); let o = dOff;
   for (let i = 0; i < frames; i++) for (let c = 0; c < ch; c++) {
     let v;

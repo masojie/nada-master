@@ -12,7 +12,10 @@ const post = (m, tr) => self.postMessage(m, tr || []);
 const copies = (chans) => chans.map((c) => c.slice());
 function plan(opts) { const base = resolveSettings(opts); return planAdaptive(base, an, getGenre(base.meta.genre)); }
 function load(chans, fs, info) {
-  let note = null; if (chans.length > 2) { chans = chans.slice(0, 2); note = 'Multichannel file: first two channels used.'; }
+  if (!chans || !chans.length || !chans[0].length) throw new Error('The file contains no audio samples');
+  const notes = []; if (info && info.crcErrors) notes.push('FLAC: ' + info.crcErrors + ' damaged frame(s) were muted (file truncated or corrupt).');
+  if (chans.length > 2) { chans = chans.slice(0, 2); notes.push('Multichannel file: first two channels used.'); }
+  const note = notes.length ? notes.join(' ') : null;
   src = { chans, fs }; out = null; post({ type: 'progress', id: 'analysis', label: 'Analysing source' });
   const t = Date.now(); an = analyzeAudio(chans, fs); const pcm = copies(chans);
   post({ type: 'loaded', info: Object.assign({}, info, { fs, channels: chans.length, frames: chans[0].length, duration: chans[0].length / fs, note, ms: Date.now() - t }), analysis: an, pcm }, pcm.map((c) => c.buffer));

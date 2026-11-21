@@ -1,5 +1,6 @@
 // flac.js — native FLAC decoder (CONSTANT/VERBATIM/FIXED/LPC, all stereo modes) and encoder
 // (FIXED predictors + partitioned Rice, best-of-4 stereo decorrelation, STREAMINFO MD5)
+import { id3Size } from './codecs.js';
 const CRC8T = new Uint8Array(256), CRC16T = new Uint16Array(256);
 for (let i = 0; i < 256; i++) { let c = i; for (let k = 0; k < 8; k++) c = c & 0x80 ? ((c << 1) ^ 0x07) & 0xFF : (c << 1) & 0xFF; CRC8T[i] = c;
   let d = i << 8; for (let k = 0; k < 8; k++) d = d & 0x8000 ? ((d << 1) ^ 0x8005) & 0xFFFF : (d << 1) & 0xFFFF; CRC16T[i] = d; }
@@ -50,51 +51,61 @@ class BitReader {
   unary() { let q = 0; for (;;) { if (this.p >= this.b.length) throw new Error('FLAC: unexpected end of stream'); const byte = (this.b[this.p] << this.k) & 0xFF; if (!byte) { q += 8 - this.k; this.k = 0; this.p++; continue; } const lz = Math.clz32(byte) - 24; q += lz; this.k += lz + 1; if (this.k >= 8) { this.k -= 8; this.p++; } return q; } }
   align() { if (this.k) { this.k = 0; this.p++; } }
 }
+// MSB-first bit writer with an integer accumulator (fewer than 8 pending bits + at most 24 new bits always fit in 31 bits)
 class BitWriter {
   constructor(cap) { this.u = new Uint8Array(cap); this.p = 0; this.cur = 0; this.n = 0; }
   _grow() { const u = new Uint8Array(this.u.length * 2); u.set(this.u); this.u = u; }
-  write(v, n) { // n <= 32, v treated as unsigned n-bit value
-    while (n > 0) { const t = Math.min(8 - this.n, n), bits = Math.floor(v / Math.pow(2, n - t)) & ((1 << t) - 1); this.cur = (this.cur << t) | bits; this.n += t; n -= t;
-      if (this.n === 8) { if (this.p >= this.u.length) this._grow(); this.u[this.p++] = this.cur; this.cur = 0; this.n = 0; } }
+  write(v, n) { // v: unsigned integer < 2^n, n <= 32
+    if (n > 24) { const hi = Math.floor(v / 16777216); this.write(hi, n - 24); v -= hi * 16777216; n = 24; }
+    this.cur = (this.cur << n) | v; this.n += n;
+    while (this.n >= 8) { this.n -= 8; if (this.p >= this.u.length) this._grow(); this.u[this.p++] = (this.cur >>> this.n) & 255; }
+    this.cur &= (1 << this.n) - 1;
   }
   swrite(v, n) { this.write(v < 0 ? v + Math.pow(2, n) : v, n); }
   rice(u, k) { let q = Math.floor(u / (1 << k)); while (q >= 24) { this.write(0, 24); q -= 24; } this.write(1, q + 1); if (k) this.write(u & ((1 << k) - 1), k); }
   align() { if (this.n) this.write(0, 8 - this.n); }
 }
 // ---------- decoder ----------
+const MAX_SEC = 3600; // streams longer than 60 minutes are refused (also guards against decompression bombs made of CONSTANT frames)
 export function decodeFlac(u8) {
-  let p = 0; if (u8[0] === 0x49) p = 10 + ((u8[6] & 127) << 21 | (u8[7] & 127) << 14 | (u8[8] & 127) << 7 | (u8[9] & 127));
-  if (String.fromCharCode(u8[p], u8[p + 1], u8[p + 2], u8[p + 3]) !== 'fLaC') throw new Error('Not a FLAC stream');
+  let p = id3Size(u8);
+  if (p + 4 > u8.length || String.fromCharCode(u8[p], u8[p + 1], u8[p + 2], u8[p + 3]) !== 'fLaC') throw new Error('Not a FLAC stream');
   p += 4; let si = null, last = false;
   while (!last) {
+    if (p + 4 > u8.length) throw new Error('FLAC: truncated metadata');
     const hdr = u8[p]; last = !!(hdr & 0x80); const type = hdr & 0x7F, len = (u8[p + 1] << 16) | (u8[p + 2] << 8) | u8[p + 3]; p += 4;
-    if (type === 0) { const r = new BitReader(u8, p); r.read(16); r.read(16); r.read(24); r.read(24);
-      si = { sr: r.read(20), ch: r.read(3) + 1, bits: r.read(5) + 1, total: r.read(36) }; si.md5 = u8.slice(p + 18, p + 34); }
+    if (p + len > u8.length) throw new Error('FLAC: truncated metadata block');
+    if (type === 0) { if (len < 34) throw new Error('FLAC: invalid STREAMINFO'); const r = new BitReader(u8, p), blk = r.read(16); r.read(16); r.read(24); r.read(24);
+      si = { blk, sr: r.read(20), ch: r.read(3) + 1, bits: r.read(5) + 1, total: r.read(36) }; si.md5 = u8.slice(p + 18, p + 34); }
     p += len;
   }
   if (!si) throw new Error('FLAC: missing STREAMINFO');
-  let cap = si.total || 1 << 20; let out = Array.from({ length: si.ch }, () => new Int32Array(cap)); let pos = 0, crcErr = 0;
+  if (!si.sr || si.bits < 4) throw new Error('FLAC: invalid STREAMINFO');
+  const maxFrames = si.sr * MAX_SEC; if (si.total > maxFrames) throw new Error('FLAC: streams longer than 60 minutes are not supported');
+  let cap = si.total || 1 << 20; let out = Array.from({ length: si.ch }, () => new Int32Array(cap)); let pos = 0, crcErr = 0, expect = p;
   const BS = [0, 192, 576, 1152, 2304, 4608, 0, 0, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768], SS = [0, 8, 12, 0, 16, 20, 24, 32];
   while (p + 2 < u8.length) {
     if (u8[p] !== 0xFF || (u8[p + 1] & 0xFE) !== 0xF8) { p++; continue; }
-    const fstart = p, r = new BitReader(u8, p); r.read(16);
+    const fstart = p, fixed = (u8[p + 1] & 1) === 0, r = new BitReader(u8, p); r.read(16);
     const bsc = r.read(4), src = r.read(4), chA = r.read(4), ssc = r.read(3); r.read(1);
-    let c0 = r.read(8), extra = 0; while (c0 & 0x80) { c0 = (c0 << 1) & 0xFF; extra++; } for (let i = 1; i < extra; i++) r.read(8);
+    let c0 = r.read(8), extra = 0; while (c0 & 0x80) { c0 = (c0 << 1) & 0xFF; extra++; } let num = c0 >> extra; for (let i = 1; i < extra; i++) num = num * 64 + (r.read(8) & 0x3F);
     let bs = BS[bsc]; if (bsc === 6) bs = r.read(8) + 1; else if (bsc === 7) bs = r.read(16) + 1;
     if (src === 12) r.read(8); else if (src === 13 || src === 14) r.read(16);
-    r.read(8);
-    const bits = SS[ssc] || si.bits, nch = chA < 8 ? chA + 1 : 2;
-    if (!bs || nch !== si.ch) { p++; continue; }
-    if (pos + bs > cap) { cap = Math.max(cap * 2, pos + bs); out = out.map((a) => { const b = new Int32Array(cap); b.set(a); return b; }); }
-    const sub = [];
-    for (let c = 0; c < nch; c++) { const side = (chA === 8 && c === 1) || (chA === 9 && c === 0) || (chA === 10 && c === 1); sub.push(decodeSubframe(r, bs, bits + (side ? 1 : 0))); }
-    r.align(); const fcrc = r.read(16); if (crc16(u8, fstart, r.p - 2) !== fcrc) crcErr++;
+    const hpos = r.p, hcrc = r.read(8), bits = SS[ssc] || si.bits, nch = chA < 8 ? chA + 1 : 2;
+    // a frame header is accepted only with a valid CRC-8: this rejects false sync codes inside audio data
+    if (!bs || nch !== si.ch || chA > 10 || extra === 1 || extra > 7 || hpos >= u8.length || crc8(u8, fstart, hpos) !== hcrc) { if (fstart === expect) crcErr++; p++; continue; }
+    const at = fixed ? num * (si.blk || bs) : num; // position from the frame number: a lost or damaged frame leaves silence, never a timing shift
+    if (at + bs > maxFrames) throw new Error('FLAC: streams longer than 60 minutes are not supported');
+    if (at + bs > cap) { cap = Math.max(cap * 2, at + bs); out = out.map((a) => { const b = new Int32Array(cap); b.set(a); return b; }); }
+    let sub = null;
+    try { sub = []; for (let c = 0; c < nch; c++) { const side = (chA === 8 && c === 1) || (chA === 9 && c === 0) || (chA === 10 && c === 1); sub.push(decodeSubframe(r, bs, bits + (side ? 1 : 0))); } r.align(); } catch (e) { sub = null; }
+    if (!sub || r.p + 2 > u8.length || crc16(u8, fstart, r.p) !== r.read(16)) { crcErr++; pos = Math.max(pos, at + bs); p = fstart + 2; continue; } // damaged frame: muted
     for (let i = 0; i < bs; i++) {
       const a = sub[0][i], b = nch > 1 ? sub[1][i] : 0; let L = a, R = b;
       if (chA === 8) { R = a - b; } else if (chA === 9) { L = a + b; R = b; } else if (chA === 10) { const m = a * 2 + (b & 1); L = (m + b) >> 1; R = (m - b) >> 1; }
-      out[0][pos + i] = L; if (nch > 1) out[1][pos + i] = R; for (let c = 2; c < nch; c++) out[c][pos + i] = sub[c][i];
+      out[0][at + i] = L; if (nch > 1) out[1][at + i] = R; for (let c = 2; c < nch; c++) out[c][at + i] = sub[c][i];
     }
-    pos += bs; p = r.p;
+    pos = Math.max(pos, at + bs); p = r.p; expect = p;
   }
   const scale = 1 / Math.pow(2, si.bits - 1), n = si.total ? Math.min(pos, si.total) : pos;
   const chans = out.map((a) => { const f = new Float32Array(n); for (let i = 0; i < n; i++) f[i] = a[i] * scale; return f; });
@@ -129,15 +140,18 @@ function fixedResidual(x, n, ord, out) {
   for (let i = ord; i < n; i++) out[i] = ord === 0 ? x[i] : ord === 1 ? x[i] - x[i - 1] : ord === 2 ? x[i] - 2 * x[i - 1] + x[i - 2] : ord === 3 ? x[i] - 3 * x[i - 1] + 3 * x[i - 2] - x[i - 3] : x[i] - 4 * x[i - 1] + 6 * x[i - 2] - 4 * x[i - 3] + x[i - 4];
 }
 function riceK(sum, cnt) { if (cnt <= 0) return 0; let k = 0; const m = sum / cnt; while (k < 30 && (1 << (k + 1)) <= m + 1) k++; return k; }
+// partition sums are computed once at the finest valid order and merged pairwise for coarser orders (same choice as an exhaustive scan)
 function planRice(res, n, ord, maxPo) {
+  let mp = -1; for (let po = 0; po <= maxPo; po++) { if ((n >> po) <= ord || (n % (1 << po))) break; mp = po; }
+  if (mp < 0) return null;
+  const levels = new Array(mp + 1), fine = new Float64Array(1 << mp), flen = n >> mp;
+  for (let pt = 0; pt < (1 << mp); pt++) { const a = pt === 0 ? ord : pt * flen, b = (pt + 1) * flen; let s = 0; for (let i = a; i < b; i++) { const v = res[i]; s += v >= 0 ? 2 * v : -2 * v - 1; } fine[pt] = s; }
+  levels[mp] = fine; for (let po = mp - 1; po >= 0; po--) { const up = levels[po + 1], cur = new Float64Array(1 << po); for (let j = 0; j < cur.length; j++) cur[j] = up[2 * j] + up[2 * j + 1]; levels[po] = cur; }
   let best = null;
-  for (let po = 0; po <= maxPo; po++) {
-    if ((n >> po) <= ord || (n % (1 << po))) break;
-    const parts = 1 << po, ks = [], len = n >> po; let bits = 6;
+  for (let po = 0; po <= mp; po++) {
+    const parts = 1 << po, ks = [], len = n >> po, sums = levels[po]; let bits = 6;
     for (let pt = 0; pt < parts; pt++) {
-      const a = pt === 0 ? ord : pt * len, b = (pt + 1) * len; let sum = 0;
-      for (let i = a; i < b; i++) { const v = res[i]; sum += v >= 0 ? 2 * v : -2 * v - 1; }
-      const cnt = b - a, k0 = riceK(sum, cnt); let bk = k0, bb = Infinity;
+      const cnt = len - (pt === 0 ? ord : 0), sum = sums[pt], k0 = riceK(sum, cnt); let bk = k0, bb = Infinity;
       for (let k = Math.max(0, k0 - 1); k <= Math.min(30, k0 + 1); k++) { const est = cnt * (k + 1) + Math.floor(sum / Math.pow(2, k)); if (est < bb) { bb = est; bk = k; } }
       ks.push(bk); bits += bb + 5;
     }
@@ -200,8 +214,10 @@ export function encodeFlac(ints, fs, bits, blockSize = 4096) {
     bw.align(); const crc = crc16(bw.u, fst, bw.p); bw.write(crc, 16);
     const fl = bw.p - fst; if (fl < minF) minF = fl; if (fl > maxF) maxF = fl;
   }
-  const out = bw.u.slice(0, bw.p), si = new BitWriter(64);
-  si.write(blockSize, 16); si.write(N < blockSize ? N : blockSize, 16); si.write(minF, 24); si.write(maxF, 24); si.write(fs, 20); si.write(nch - 1, 3); si.write(bits - 1, 5);
+  if (!frame) minF = 0;
+  // block size fields: min = max = the block size actually used (never below the spec minimum of 16; the last block may be shorter)
+  const out = bw.u.slice(0, bw.p), si = new BitWriter(64), mbs = Math.max(16, Math.min(blockSize, N));
+  si.write(mbs, 16); si.write(mbs, 16); si.write(minF, 24); si.write(maxF, 24); si.write(fs, 20); si.write(nch - 1, 3); si.write(bits - 1, 5);
   si.write(Math.floor(N / 4294967296), 4); si.write(N >>> 0, 32); const dg = md5.digest(); for (let i = 0; i < 16; i++) si.write(dg[i], 8);
   out.set(si.u.subarray(0, 34), siPos);
   return out;
