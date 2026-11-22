@@ -5,7 +5,7 @@
 // Yang dijaga di sini adalah janji produk, bukan angka preset:
 //   1. hasil selalu finite, panjang dan jumlah kanal tidak berubah, sumber tidak ikut berubah
 //   2. true peak tidak melewati ceiling (diukur oleh meter engine DAN estimator independen)
-//   3. loudness mencapai target kecuali engine sendiri menyatakan "capped"
+//   3. loudness mencapai target kecuali engine sendiri menyatakan \"capped\"
 //   4. hasil deterministik: input dan setting sama menghasilkan bit yang sama
 import { suite } from './lib/harness.mjs';
 import * as S from './lib/signals.mjs';
@@ -14,13 +14,12 @@ import { measureTruePeak } from '../src/engine/loudness.js';
 
 const t = suite('chain');
 const SEC = 8;
-// Estimator independen di signals.mjs memakai kernel panjang (48 tap per fase), sedangkan meter engine
-// memakai kernel pendek 16 tap (mirip meter standar ITU). Pada material yang di-limit keras, kernel
-// pendek membaca sedikit lebih rendah daripada gelombang kontinu yang sebenarnya.
-// Hasil pengukuran: edm/loud -1.02 vs -0.66 dBTP, metal/loud (96 kHz) -1.02 vs -0.59 dBTP.
+// Estimator independen di signals.mjs dan meter engine kini sama-sama memakai kernel panjang (48 tap per fase).
+// Sebelum audit 2026-11-19 (NM-03) meter engine memakai 16 tap dan membaca -1.02 dBTP sementara gelombang kontinu
+// -0.66 dBTP (edm/loud) dan -0.59 dBTP (metal/loud, 96 kHz).
 //   TP_HARD : batas mutlak. Gelombang kontinu tidak boleh melewati ceiling lebih dari ini, dan dua meter
 //             tidak boleh selisih lebih dari ini. Melewatinya berarti ada bug, bukan sekadar beda kernel.
-//   TP_TIGHT: harapan akhir (selisih 0.1 dB). Saat ini dicatat sebagai TODO audit, belum menggagalkan tes.
+//   TP_TIGHT: selisih maksimum meter engine vs estimator independen (0.1 dB), wajib lulus.
 const TP_HARD = 0.5, TP_TIGHT = 0.1;
 
 const CASES = [
@@ -52,7 +51,7 @@ for (const c of CASES) {
   t.atMost('true peak (meter engine) <= ceiling', tpEngine, ceil + 0.05, ' dBTP');
   t.atMost('true peak gelombang kontinu (estimator independen) <= ceiling + ' + TP_HARD + ' dB', tpIndep, ceil + TP_HARD, ' dBTP');
   t.near('meter engine dan estimator independen selisih <= ' + TP_HARD + ' dB', tpEngine, tpIndep, TP_HARD, ' dB');
-  t.todo('AUDIT: meter engine dan estimator independen selisih <= ' + TP_TIGHT + ' dB', Math.abs(tpEngine - tpIndep) <= TP_TIGHT, 'engine=' + tpEngine.toFixed(2) + ' independen=' + tpIndep.toFixed(2) + ' dBTP');
+  t.ok('meter engine dan estimator independen selisih <= ' + TP_TIGHT + ' dB', Math.abs(tpEngine - tpIndep) <= TP_TIGHT, 'engine=' + tpEngine.toFixed(2) + ' independen=' + tpIndep.toFixed(2) + ' dBTP');
   t.atMost('puncak sampel <= ceiling', S.peakDb(out.chans), ceil + 0.05, ' dBFS');
 
   const lufs = out.analysis.loudness.integrated;
