@@ -26,11 +26,11 @@ export function mergeDeep(target, src) {
 export function besselI0(x) { let s = 1, t = 1; for (let k = 1; k < 60; k++) { t *= (x / (2 * k)) * (x / (2 * k)); s += t; if (t < 1e-14 * s) break; } return s; }
 export function kaiserWin(u, beta) { const a = 1 - u * u; return a <= 0 ? 0 : besselI0(beta * Math.sqrt(a)) / besselI0(beta); }
 export function sinc(x) { if (Math.abs(x) < 1e-12) return 1; const px = Math.PI * x; return Math.sin(px) / px; }
-// Lambert continued-fraction tanh approximation (|err| < 2e-5), clamped and monotonic
+// tanh: Lambert continued fraction where it is accurate (|x| <= 2, measured max |err| about 1e-6), Math.tanh beyond; monotonic.
+// The former version clamped at +-4.9 and was off by 1.1e-4 there (the comment claimed 2e-5).
 export function fastTanh(x) {
-  if (x > 4.9) return 1; if (x < -4.9) return -1;
-  const x2 = x * x, y = x * (135135 + x2 * (17325 + x2 * (378 + x2))) / (135135 + x2 * (62370 + x2 * (3150 + x2 * 28)));
-  return y > 1 ? 1 : (y < -1 ? -1 : y);
+  if (x > 2 || x < -2) return Math.tanh(x);
+  const x2 = x * x; return x * (135135 + x2 * (17325 + x2 * (378 + x2))) / (135135 + x2 * (62370 + x2 * (3150 + x2 * 28)));
 }
 // gated percentile of block levels (dB): absolute gate + relative gate below the power mean
 export function gatedPercentile(levelsDb, p, relGate = -20, absGate = -70) {

@@ -45,7 +45,8 @@ for (const [name, fs, make, flags = {}] of CASES) {
     t.atMost('hasil tetap diam', S.peakDb(out.chans), -120, ' dBFS');
     for (const id of ['clip', 'tp', 'int']) t.ok('QC ' + id + ' = pass', qcStatus(qc, id) === 'pass', 'status=' + qcStatus(qc, id));
     const bad = qc.filter((q) => q.status === 'fail').map((q) => q.id);
-    t.todo('AUDIT: QC tidak menandai FAIL untuk input sunyi (alarm palsu)', bad.length === 0, 'FAIL pada: ' + bad.join(','));
+    // diperbaiki di audit 2026-11-19 (NM-14): input sunyi dulu memberi FAIL palsu pada mono dan dyn
+    t.ok('QC tidak menandai FAIL untuk input sunyi', bad.length === 0, 'FAIL pada: ' + bad.join(','));
   } else {
     t.atMost('true peak (meter engine) <= ceiling', measureTruePeak(out.chans, fs).dbtp, ceil + 0.05, ' dBTP');
     t.atMost('puncak sampel <= ceiling', S.peakDb(out.chans), ceil + 0.05, ' dBFS');

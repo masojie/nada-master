@@ -13,7 +13,8 @@ export function planAdaptive(settings, an, genre) {
   if (!s.adaptive.on || !isFinite(an.loudness.integrated)) return { settings: s, actions, problems };
   const k = s.adaptive.strength ?? 1, fs = an.fs, st = staticOctaves(s, fs), rel = an.spectrum.octaveRel, t = genre.targetRel;
   OCT_CENTERS.forEach((f, i) => {
-    const dev = rel[i] + st[i] - t[i]; if (Math.abs(dev) <= 2.5) return;
+    // octaves that cannot be measured at this sample rate are NaN and must never produce a correction
+    const dev = rel[i] + st[i] - t[i]; if (!Number.isFinite(dev) || Math.abs(dev) <= 2.5) return;
     const g = +clamp(-0.5 * (dev - Math.sign(dev) * 2.5) * k, -2.5 * k, 2.5 * k).toFixed(2); if (Math.abs(g) < 0.2) return;
     const band = i === 0 ? { type: 'lowshelf', f: 45, q: 0.7 } : i === 9 ? { type: 'highshelf', f: 11000, q: 0.7 } : { type: 'bell', f, q: 1.2 };
     s.eq.bands.push({ on: true, ...band, g, ch: 'stereo', auto: true });

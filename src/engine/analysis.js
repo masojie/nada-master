@@ -1,5 +1,5 @@
 // analysis.js — full-file measurement: loudness, peaks, dynamics, stereo, spectrum, transients + deterministic problem detection
-import { measureLoudness, measureTruePeak } from './loudness.js';
+import { measureLoudness, measureTruePeak, kWeightingSections, loudnessFromHops } from './loudness.js';
 import { Biquads, butterSections, lr4Sections } from './biquad.js';
 import { FFT } from './fft.js';
 import { percentileOf, powToDb } from './util.js';
@@ -14,6 +14,12 @@ function basicStats(x) {
   if (run >= 3) { runs++; clipped += run; }
   return { peak: pk, peakDb: toDbA(pk), rmsDb: toDbA(Math.sqrt(ss / Math.max(1, N))), dc: sum / Math.max(1, N), dcDb: toDbA(Math.abs(sum / Math.max(1, N))), clipRuns: runs, clipSamples: clipped };
 }
+// integrated loudness of the mono fold-down played on both speakers, streamed (no full-length copy; bit-identical to measuring a Float32 M buffer)
+function monoFoldLufs(L, R, fs) {
+  const N = L.length, hop = Math.max(1, Math.round(fs / 10)), nHop = Math.max(1, Math.ceil(N / hop)), e = new Float64Array(nHop), cnt = new Float64Array(nHop), blk = new Float64Array(hop), bq = new Biquads(kWeightingSections(fs), 1);
+  for (let h = 0; h < nHop; h++) { const off = h * hop, len = Math.min(hop, N - off); if (len <= 0) break; for (let i = 0; i < len; i++) blk[i] = Math.fround(0.5 * (L[off + i] + R[off + i])); bq.run(blk, len, 0); let s = 0; for (let i = 0; i < len; i++) s += blk[i] * blk[i]; e[h] = s; cnt[h] = len; }
+  return loudnessFromHops({ e, cnt, hop }).integrated + 3.0103;
+}
 function stereoStats(L, R, fs, hop) {
   const N = L.length, nHop = Math.ceil(N / hop), corr = new Float32Array(nHop); let sLL = 0, sRR = 0, sLR = 0, hLL = 0, hRR = 0, hLR = 0;
   for (let i = 0; i < N; i++) { const l = L[i], r = R[i]; sLL += l * l; sRR += r * r; sLR += l * r; hLL += l * l; hRR += r * r; hLR += l * r;
@@ -21,8 +27,7 @@ function stereoStats(L, R, fs, hop) {
   const c = sLR / Math.sqrt(sLL * sRR + 1e-30), sM = (sLL + sRR + 2 * sLR) / 4, sS = Math.max(0, (sLL + sRR - 2 * sLR) / 4);
   const bl = new Biquads(lr4Sections('lp', 150, fs), 2), B = 8192, a = new Float64Array(B), b = new Float64Array(B); let lLL = 0, lRR = 0, lLR = 0;
   for (let o = 0; o < N; o += B) { const n = Math.min(B, N - o); for (let i = 0; i < n; i++) { a[i] = L[o + i]; b[i] = R[o + i]; } bl.run(a, n, 0); bl.run(b, n, 1); for (let i = 0; i < n; i++) { lLL += a[i] * a[i]; lRR += b[i] * b[i]; lLR += a[i] * b[i]; } }
-  const M = new Float32Array(N); for (let i = 0; i < N; i++) M[i] = 0.5 * (L[i] + R[i]);
-  const monoI = measureLoudness([M], fs).integrated + 3.0103;
+  const monoI = monoFoldLufs(L, R, fs);
   return { correlation: c, correlationSeries: corr, correlationP5: percentileOf(corr, 0.05), sideToMidDb: powToDb(sS / (sM + 1e-30)), widthPct: 100 * Math.sqrt(sS / (sM + 1e-30)),
     balanceDb: powToDb(sLL / (sRR + 1e-30)), lowCorrelation: lLR / Math.sqrt(lLL * lRR + 1e-30), lowSideToMidDb: powToDb(Math.max(0, lLL + lRR - 2 * lLR) / (lLL + lRR + 2 * lLR + 1e-30)), monoFoldI: monoI };
 }
@@ -32,33 +37,42 @@ function spectrumStats(chans, fs) {
   const L = chans[0], R = chans[1] || chans[0], st = chans.length > 1, frames = Math.max(1, Math.floor((N - nf) / hop) + 1), step = Math.max(1, Math.ceil(frames / 700));
   const PM = new Float64Array(half + 1), PS = new Float64Array(half + 1), re = new Float64Array(nf), im = new Float64Array(nf);
   const r24 = []; for (let f = 100; f <= Math.min(10000, fs * 0.45); f *= Math.pow(2, 1 / 24)) r24.push(f);
-  const frameBands = []; let used = 0;
+  // 1/24-octave resonance bands: fixed bin->band map. A band without any FFT bin is not measurable (NaN); the others use mean power per bin,
+  // so bands with 1, 2 or 3 bins are comparable (summed power made empty or sparse bands look like +30..+60 dB resonances)
+  const nb = r24.length, bandOf = new Int32Array(half + 1).fill(-1), nBins = new Float64Array(nb);
+  for (let k = 0; k <= half; k++) { const f = k * fs / nf; if (f >= 100 && f < 10000) { const bi = Math.floor(24 * Math.log2(f / 100)); if (bi < nb) { bandOf[k] = bi; nBins[bi]++; } } }
+  // at most 320 frames feed the persistence test, spread evenly over the whole file (not only its beginning)
+  const keepEvery = Math.max(1, Math.ceil(Math.ceil(frames / step) / 320)), frameBands = []; let used = 0;
   for (let fr = 0; fr < frames; fr += step) {
     const o = fr * hop; for (let i = 0; i < nf; i++) { const k = o + i, l = k < N ? L[k] : 0, r = k < N ? R[k] : 0; re[i] = 0.5 * (l + r) * win[i]; im[i] = st ? 0.5 * (l - r) * win[i] : 0; }
-    fft.transform(re, im); const fb = new Float32Array(r24.length), keep = frameBands.length < 320;
+    fft.transform(re, im); const fb = used % keepEvery === 0 ? new Float64Array(nb) : null;
     for (let k = 0; k <= half; k++) { const k2 = (nf - k) % nf, zr = re[k], zi = im[k], cr = re[k2], ci = -im[k2];
       const mr = 0.5 * (zr + cr), mi = 0.5 * (zi + ci), sr = 0.5 * (zi - ci), si = -0.5 * (zr - cr), pm = mr * mr + mi * mi, ps = sr * sr + si * si; PM[k] += pm; PS[k] += ps;
-      if (keep) { const f = k * fs / nf; if (f >= 100 && f < 10000) { const bi = Math.floor(24 * Math.log2(f / 100)); if (bi < fb.length) fb[bi] += pm + ps; } } }
-    if (keep) frameBands.push(fb); used++;
+      if (fb && bandOf[k] >= 0) fb[bandOf[k]] += pm + ps; }
+    if (fb) frameBands.push(fb); used++;
   }
   const norm = 1 / (used * nf * 0.375 * nf / 4); for (let k = 0; k <= half; k++) { PM[k] *= norm; PS[k] *= norm; }
   const bandPow = (a, b, P) => { let s = 0; const k0 = Math.max(1, Math.round(a * nf / fs)), k1 = Math.min(half, Math.round(b * nf / fs)); for (let k = k0; k < k1; k++) s += P[k]; return s; };
   const PT = new Float64Array(half + 1); for (let k = 0; k <= half; k++) PT[k] = PM[k] + PS[k];
   const total = bandPow(20, Math.min(20000, fs / 2), PT) + 1e-30;
-  const octave = OCT_CENTERS.map((c) => (c * Math.SQRT2 < fs / 2 ? powToDb(bandPow(c / Math.SQRT2, c * Math.SQRT2, PT) + 1e-30) : -200));
+  // octave bands. A band crossing Nyquist (16 kHz at 44.1 kHz) is measured up to 0.4995 fs and normalised by its log2 coverage, so 44.1 and
+  // 48 kHz files read alike; a band covering less than half an octave is NaN (never a sentinel dB value that could drive the adaptive EQ)
+  const octave = OCT_CENTERS.map((c) => { const lo = c / Math.SQRT2, full = c * Math.SQRT2, hi = Math.min(full, 0.4995 * fs); if (hi === full) return powToDb(bandPow(lo, hi, PT) + 1e-30); const cover = Math.log2(hi / lo); return cover >= 0.5 ? powToDb(bandPow(lo, hi, PT) / cover + 1e-30) : NaN; });
   const ref = (octave[3] + octave[4] + octave[5] + octave[6]) / 4, octaveRel = octave.map((v) => v - ref);
-  const bands = {}; for (const [n, a, b] of BAND_DEFS) bands[n] = b < fs / 2 ? powToDb(bandPow(a, b, PT) / total) : -200;
+  const bands = {}; for (const [n, a, b] of BAND_DEFS) bands[n] = b < fs / 2 ? powToDb(bandPow(a, b, PT) / total) : NaN;
   let cs = 0, cw = 0; for (let k = 1; k <= half; k++) { const f = k * fs / nf; if (f < 20 || f > 20000) continue; cs += f * PT[k]; cw += PT[k]; }
   const xs = [], ys = []; for (let i = 2; i <= 8; i++) if (octave[i] > -190) { xs.push(i); ys.push(octave[i]); }
   const mx = xs.reduce((a, b) => a + b, 0) / xs.length, my = ys.reduce((a, b) => a + b, 0) / ys.length; let num = 0, den = 0; for (let i = 0; i < xs.length; i++) { num += (xs[i] - mx) * (ys[i] - my); den += (xs[i] - mx) ** 2; }
   const midPresenceDb = powToDb(bandPow(1000, 4000, PM) / (bandPow(20, Math.min(20000, fs / 2), PM) + 1e-30));
   const disp = [], fMax = Math.min(20000, fs * 0.48);
   for (let i = 0; i < 160; i++) { const f = 20 * Math.pow(fMax / 20, i / 159); disp.push([Math.round(f), +powToDb(bandPow(f * Math.pow(2, -1 / 12), f * Math.pow(2, 1 / 12), PT) / Math.max(1e-9, f * (Math.pow(2, 1 / 12) - Math.pow(2, -1 / 12))) + 1e-30).toFixed(2)]); }
-  const lt = new Float64Array(r24.length); frameBands.forEach((fb) => { for (let i = 0; i < fb.length; i++) lt[i] += fb[i]; });
-  const ltDb = Array.from(lt, (v) => powToDb(v + 1e-30)), base = (arr, i) => { let s = 0, c = 0; for (let j = Math.max(0, i - 6); j <= Math.min(arr.length - 1, i + 6); j++) if (Math.abs(j - i) > 1) { s += arr[j]; c++; } return s / c; };
-  const frDb = frameBands.map((fb) => Array.from(fb, (v) => powToDb(v + 1e-30))), res = [];
-  for (let i = 8; i < ltDb.length - 8; i++) { if (r24[i] < 150 || r24[i] > 8000) continue; const ex = ltDb[i] - base(ltDb, i);
-    if (ex > 3 && ltDb[i] >= ltDb[i - 1] && ltDb[i] >= ltDb[i + 1]) { let pers = 0; for (const d of frDb) if (d[i] - base(d, i) > 2) pers++;
+  const lt = new Float64Array(nb); frameBands.forEach((fb) => { for (let i = 0; i < nb; i++) lt[i] += fb[i]; });
+  const bandDb = (arr) => Array.from(arr, (v, i) => (nBins[i] > 0 ? powToDb(v / nBins[i] + 1e-30) : NaN));
+  const fin = (arr, j) => (Number.isFinite(arr[j]) ? arr[j] : -Infinity);
+  const base = (arr, i) => { let s = 0, c = 0; for (let j = Math.max(0, i - 6); j <= Math.min(arr.length - 1, i + 6); j++) if (Math.abs(j - i) > 1 && Number.isFinite(arr[j])) { s += arr[j]; c++; } return c >= 4 ? s / c : NaN; };
+  const ltDb = bandDb(lt), frDb = frameBands.map(bandDb), res = [];
+  for (let i = 8; i < nb - 8; i++) { if (r24[i] < 150 || r24[i] > 8000 || !Number.isFinite(ltDb[i])) continue; const ex = ltDb[i] - base(ltDb, i);
+    if (ex > 3 && ltDb[i] >= fin(ltDb, i - 1) && ltDb[i] >= fin(ltDb, i + 1)) { let pers = 0; for (const d of frDb) if (d[i] - base(d, i) > 2) pers++;
       const pf = pers / Math.max(1, frDb.length); if (pf > 0.55) res.push({ freq: Math.round(r24[i] * Math.pow(2, 1 / 48)), excessDb: +ex.toFixed(1), persistence: +pf.toFixed(2) }); } }
   res.sort((a, b) => b.excessDb - a.excessDb);
   return { octave, octaveRel, bands, centroid: cw ? cs / cw : 0, tiltDbPerOct: den ? num / den : 0, midPresenceDb, display: disp, resonances: res.slice(0, 4) };
