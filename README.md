@@ -1,4 +1,4 @@
-# NADA Master
+# Lintang Audio
 
 Workstation mastering audio berbasis browser. Prosesnya deterministik (rule-based DSP), tanpa AI: file dan setting yang sama selalu menghasilkan hasil yang sama.
 
