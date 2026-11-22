@@ -37,11 +37,12 @@ export class EQStage {
   processBlock(L, R, n) { this.eq.processBlock(L, R, n); }
   report() { return { sections: this.n, phase: 'minimum' }; }
 }
-// zero-phase target magnitude -> Kaiser-windowed FIR; M and S packed into one complex overlap-save FFT
+// zero-phase target magnitude -> Kaiser-windowed FIR; M and S packed into one complex overlap-save FFT.
+// The FIR spans about 0.74 s so low-frequency and narrow-Q bands are realised accurately (4095 taps missed a 100 Hz bell by 1.6 dB).
 export class LinearPhaseEQStage {
   constructor(p, fs, nch) {
     const s = eqSections(p.bands, fs); this.stereo = nch > 1;
-    const taps = fs > 100000 ? 16383 : fs > 50000 ? 8191 : 4095; this.taps = taps;
+    const taps = fs > 100000 ? 131071 : fs > 50000 ? 65535 : 32767; this.taps = taps;
     const NF = nextPow2(taps * 2); this.NF = NF; this.fft = new FFT(NF); this.hop = NF - taps + 1;
     this.HM = this.design(s.mid, fs, taps); this.HS = this.design(s.side, fs, taps);
     this.inM = new Float64Array(NF); this.inS = new Float64Array(NF); this.fill = taps - 1; this.re = new Float64Array(NF); this.im = new Float64Array(NF);
@@ -84,6 +85,7 @@ export class LinearPhaseEQStage {
   report() { return { phase: 'linear', taps: this.taps, latency: this.latency }; }
 }
 // ---------- Stage 3: dynamic EQ (parallel band-pass gain: exactly transparent at unity) ----------
+// the band-passed detector signal is also the signal the gain is applied to (one biquad per band and channel)
 export class DynEQStage {
   constructor(p, fs, nch, stats) {
     this.stereo = nch > 1; this.bands = [];
@@ -91,23 +93,23 @@ export class DynEQStage {
       if (!b.on) return; const ch = this.stereo ? b.ch : 'mid', sec = designBiquad('bp', b.f, b.q, 0, fs);
       const T = (p.autoThr !== false && stats && isFinite(stats[i])) ? stats[i] + b.offsetDb : b.thrDb;
       this.bands.push({ name: b.name, ch, T, R: Math.max(1, b.ratio), W: 4, range: Math.abs(b.rangeDb), aA: tcCoef(b.attackMs, fs), aR: tcCoef(b.releaseMs, fs),
-        dM: new Biquads([sec], 1), dS: new Biquads([sec], 1), aM: new Biquads([sec], 1), aS: new Biquads([sec], 1), env: 0, minGr: 0, sumGr: 0, cnt: 0 });
+        dM: new Biquads([sec], 1), dS: new Biquads([sec], 1), env: 0, minGr: 0, sumGr: 0, cnt: 0 });
     });
-    this.M = new Float64Array(BLOCK); this.S = new Float64Array(BLOCK); this.t1 = new Float64Array(BLOCK); this.t2 = new Float64Array(BLOCK); this.t3 = new Float64Array(BLOCK); this.t4 = new Float64Array(BLOCK);
+    this.M = new Float64Array(BLOCK); this.S = new Float64Array(BLOCK); this.t1 = new Float64Array(BLOCK); this.t2 = new Float64Array(BLOCK);
   }
   processBlock(L, R, n) {
     const M = this.M, S = this.S, st = this.stereo && R;
     for (let i = 0; i < n; i++) { M[i] = st ? 0.5 * (L[i] + R[i]) : L[i]; S[i] = st ? 0.5 * (L[i] - R[i]) : 0; }
     for (const b of this.bands) {
-      const useM = b.ch !== 'side', useS = st && b.ch !== 'mid', dM = this.t1, dS = this.t2, aM = this.t3, aS = this.t4;
-      for (let i = 0; i < n; i++) { dM[i] = M[i]; dS[i] = S[i]; aM[i] = M[i]; aS[i] = S[i]; }
-      if (useM) { b.dM.run(dM, n, 0); b.aM.run(aM, n, 0); } if (useS) { b.dS.run(dS, n, 0); b.aS.run(aS, n, 0); }
+      const useM = b.ch !== 'side', useS = st && b.ch !== 'mid', dM = this.t1, dS = this.t2;
+      for (let i = 0; i < n; i++) { dM[i] = M[i]; dS[i] = S[i]; }
+      if (useM) b.dM.run(dM, n, 0); if (useS) b.dS.run(dS, n, 0);
       const kneeLo = Math.pow(10, (b.T - b.W / 2) / 20), T = b.T, Rr = b.R, W = b.W, rg = b.range, aA = b.aA, aR = b.aR; let env = b.env, mn = b.minGr, sm = 0;
       for (let i = 0; i < n; i++) {
         const lv = (useM ? Math.abs(dM[i]) : 0) + (useS ? Math.abs(dS[i]) : 0); let tg = 0;
         if (lv > kneeLo) { tg = gcDb(20 * Math.log10(lv), T, Rr, W); if (tg < -rg) tg = -rg; }
         env = tg < env ? tg + (env - tg) * aA : tg + (env - tg) * aR;
-        if (env < -0.001) { const gm1 = Math.pow(10, env / 20) - 1; if (useM) M[i] += gm1 * aM[i]; if (useS) S[i] += gm1 * aS[i]; if (env < mn) mn = env; }
+        if (env < -0.001) { const gm1 = Math.pow(10, env / 20) - 1; if (useM) M[i] += gm1 * dM[i]; if (useS) S[i] += gm1 * dS[i]; if (env < mn) mn = env; }
         sm += env;
       }
       b.env = env; b.minGr = mn; b.sumGr += sm; b.cnt += n;
