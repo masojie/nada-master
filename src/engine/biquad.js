@@ -42,11 +42,18 @@ export class Biquads {
     }
   }
 }
+// Butterworth orde n sebagai kaskade biquad: floor(n/2) seksi orde 2 dengan Q_k = 1 / (2 sin((2k-1) pi / (2n))), ditambah satu seksi
+// orde 1 bila n ganjil. Orde 1, 2 dan 4 memakai konstanta lama supaya hasil render yang sudah ada tidak berubah satu bit pun.
+// Dulu orde lain (3, 5, 6, ...) diam-diam menjadi orde 4 (audit 2026-11-19, butterSections orde ganjil).
 export function butterSections(type, f, order, fs) {
-  const t1 = type === 'hp' ? 'hp1' : 'lp1';
-  if (order <= 1) return [designBiquad(t1, f, 0.7071, 0, fs)];
-  if (order === 2) return [designBiquad(type, f, Math.SQRT1_2, 0, fs)];
-  return [designBiquad(type, f, 0.5411961001461969, 0, fs), designBiquad(type, f, 1.3065629648763766, 0, fs)];
+  const t1 = type === 'hp' ? 'hp1' : 'lp1', n = Number.isFinite(order) ? Math.max(1, Math.round(order)) : 4;
+  if (n === 1) return [designBiquad(t1, f, 0.7071, 0, fs)];
+  if (n === 2) return [designBiquad(type, f, Math.SQRT1_2, 0, fs)];
+  if (n === 4) return [designBiquad(type, f, 0.5411961001461969, 0, fs), designBiquad(type, f, 1.3065629648763766, 0, fs)];
+  const secs = [];
+  for (let k = Math.floor(n / 2); k >= 1; k--) secs.push(designBiquad(type, f, 1 / (2 * Math.sin((2 * k - 1) * Math.PI / (2 * n))), 0, fs)); // Q naik dari kecil ke besar
+  if (n % 2) secs.push(designBiquad(t1, f, 0.7071, 0, fs));
+  return secs;
 }
 export function lr4Sections(type, f, fs) { const s = designBiquad(type, f, Math.SQRT1_2, 0, fs); return [s, Object.assign({}, s)]; }
 export function allpassSection(f, fs) { return designBiquad('ap', f, Math.SQRT1_2, 0, fs); }
