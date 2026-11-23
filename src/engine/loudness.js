@@ -1,6 +1,6 @@
 // loudness.js — ITU-R BS.1770-4 / EBU R128 loudness (Integrated, Momentary, Short-term, LRA) and true peak
 import { Biquads } from './biquad.js';
-import { TPInterp, tpFactorFor } from './oversample.js';
+import { tpScratch, tpFactorFor } from './oversample.js';
 import { percentileOf } from './util.js';
 export function kWeightingSections(fs) { // analog-prototype formulas (libebur128), valid for any sample rate
   let f0 = 1681.974450955533, G = 3.999843853973347, Q = 0.7071752369554196, K = Math.tan(Math.PI * f0 / fs);
@@ -51,8 +51,8 @@ export function loudnessFromHops({ e, cnt, hop }) {
 export function measureLoudness(chans, fs) { return loudnessFromHops(hopEnergies(chans, fs)); }
 export function integratedLufs(chans, fs) { return measureLoudness(chans, fs).integrated; }
 // overall and per-channel values are exact; the per-hop display series may use the cheap estimate below the channel's sample peak
-export function measureTruePeak(chans, fs, hop = 0) {
-  const F = tpFactorFor(fs), tp = new TPInterp(F), N = chans[0].length, seg = new Float32Array(N);
+export function measureTruePeak(chans, fs, hop = 0, scratch = null) {
+  const F = tpFactorFor(fs), N = chans[0].length, sc = tpScratch(scratch, N, F, false), tp = sc.tp, seg = sc.seg;
   const nHop = hop ? Math.ceil(N / hop) : 0, series = hop ? new Float32Array(nHop) : null, perCh = [];
   let mx = 0;
   for (const x of chans) {

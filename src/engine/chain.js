@@ -36,17 +36,17 @@ export function renderMaster(input, S, an, onProgress = () => {}) {
   stage('stereo', 'Stereo Image', () => { if (S.stereo.bypass || nch < 2) return { bypassed: true }; const m = new StereoStage(S.stereo, fs, nch); runBlockStage(m, work); return m.report(); });
   stage('tone', 'Tonal Enhancement', () => { if (S.tone.bypass) return { bypassed: true }; runBlockStage(new ToneStage(S.tone, fs, nch), work); return {}; });
   onProgress({ id: 'loud', label: 'Clipper · Limiter · Loudness' }); const t0 = Date.now();
-  const P = work.map((c) => new Float32Array(c)), Lp = integratedLufs(P, fs), target = S.loud.targetLufs, maxLoss = S.loud.maxLimitLu;
+  const P = work.map((c) => new Float32Array(c)), Lp = integratedLufs(P, fs), target = S.loud.targetLufs, maxLoss = S.loud.maxLimitLu, scratch = {};
   const runAt = (gDb, marginDb = 0) => {
     work.forEach((w, c) => w.set(P[c])); applyGain(work, dbToLin(gDb));
     const clip = S.clip.bypass ? null : (() => { const m = new ClipStage(S.clip, S.lim.ceilingDb, fs, nch); runBlockStage(m, work); return m.report(); })();
-    const lim = S.lim.bypass ? null : runLimiter(work, S.lim, fs, { marginDb });
+    const lim = S.lim.bypass ? null : runLimiter(work, S.lim, fs, { marginDb, scratch });
     const L = integratedLufs(work, fs); return { gDb, L, loss: Lp + gDb - L, clip, lim, marginDb };
   };
   let r, capped = false; const hist = [];
   if (!isFinite(Lp)) { r = runAt(0); rep.notes.push('Silent input: loudness stage skipped.'); }
   else if (S.loud.bypass) r = runAt(S.lim.driveDb || 0);
-  else if (S.lim.bypass) { const tp = measureTruePeak(P, fs).dbtp; let g = target - Lp; if (g > S.lim.ceilingDb - tp) { g = S.lim.ceilingDb - tp; capped = true; } r = runAt(g); }
+  else if (S.lim.bypass) { const tp = measureTruePeak(P, fs, 0, scratch).dbtp; let g = target - Lp; if (g > S.lim.ceilingDb - tp) { g = S.lim.ceilingDb - tp; capped = true; } r = runAt(g); }
   else {
     r = runAt(target - Lp); hist.push(r);
     for (let it = 0; it < 6; it++) {
@@ -59,8 +59,8 @@ export function renderMaster(input, S, an, onProgress = () => {}) {
     }
     if (S.loud.preserveDynamics && r.loss > maxLoss + 0.3) { const ok = hist.filter((h) => h.loss <= maxLoss + 0.3).sort((x, y) => y.L - x.L)[0]; if (ok) r = runAt(ok.gDb); }
   }
-  let tp = measureTruePeak(work, fs).dbtp, tries = 0;
-  while (!S.lim.bypass && tp > S.lim.ceilingDb + 0.005 && tries < 3) { r = runAt(r.gDb, r.marginDb + (tp - S.lim.ceilingDb) + 0.02); tp = measureTruePeak(work, fs).dbtp; tries++; }
+  let tp = measureTruePeak(work, fs, 0, scratch).dbtp, tries = 0;
+  while (!S.lim.bypass && tp > S.lim.ceilingDb + 0.005 && tries < 3) { r = runAt(r.gDb, r.marginDb + (tp - S.lim.ceilingDb) + 0.02); tp = measureTruePeak(work, fs, 0, scratch).dbtp; tries++; }
   if (S.lim.trimDb) applyGain(work, dbToLin(Math.min(0, S.lim.trimDb)));
   rep.stages.clip = r.clip || { bypassed: true }; rep.stages.lim = r.lim ? { ...r.lim, grSeries: undefined } : { bypassed: true }; rep.grSeries = r.lim ? r.lim.grSeries : null; rep.timings.loud = Date.now() - t0;
   const fin = integratedLufs(work, fs);
