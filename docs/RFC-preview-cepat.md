@@ -1,6 +1,6 @@
 # RFC: jalur preview cepat untuk mode Advanced
 
-Status: USULAN, untuk didiskusikan. PR ini hanya berisi dokumen ini, belum ada kode dan tidak mengubah perilaku aplikasi.
+Status: USULAN dengan keputusan awal (bagian 9). PR ini hanya berisi dokumen ini, belum ada kode dan tidak mengubah perilaku aplikasi.
 
 ## 1. Masalah
 
@@ -129,17 +129,21 @@ Batas angka di atas adalah usulan awal; nilai finalnya harus ditentukan dari pen
 - Hasil tes kompatibilitas baru dari satu perangkat. Perangkat lain, versi browser lain, atau lingkungan hosting lain (Vercel, dengan CSP-nya) perlu diuji.
 - Dua jalur DSP berarti dua tempat memelihara logika yang sama. Mitigasi: tes perbandingan otomatis.
 
-## 9. Pertanyaan untuk didiskusikan
+## 9. Keputusan diskusi (2026-11-23)
 
-1. Apakah preview yang berupa perkiraan dapat diterima, atau harus lebih dekat lagi dengan master?
-2. Tahap mana yang paling penting untuk didengar langsung (usulan urutan: EQ, kompresor, limiter, saturasi, stereo)?
-3. Perangkat target minimum dan anggaran CPU yang dianggap wajar (usulan awal di bagian 2.2 dan 4.1)?
-4. Apakah saklar "Live preview" (otomatis) atau tombol "Preview" (sekali tekan) yang lebih disukai?
-5. Bila fase 2 diperlukan: kompilasi Rust di CI dengan `.wasm` di-commit, atau cara lain?
+Proyek ini dipakai sendiri oleh pemiliknya (satu pengguna, satu HP). Lima pertanyaan awal dijawab sebagai berikut. Ini keputusan awal; boleh direvisi setelah prototipe diukur.
 
-## 10. Rencana bertahap (bila disetujui)
+1. **Preview perkiraan: diterima.** Preview dipakai untuk mengatur suara; hasil akurat tetap dari MASTER.
+2. **Urutan tahap:** EQ, kompresor, limiter lebih dulu; saturasi dan stereo menyusul bila CPU masih longgar.
+3. **Perangkat target dan anggaran:** HP pemilik sebagai patokan (sudah lulus tes kompatibilitas, bagian 2.1). Anggaran: rata-rata di bawah 50 persen dari jatah satu blok, nol blok terlewat dalam uji 60 detik. Dukungan untuk HP lemah bukan tujuan.
+4. **Kontrol:** dua-duanya disediakan. Saklar "Live preview" (mode menetap, preview otomatis mengikuti musik yang diputar) dan tombol "Preview" (sekali tekan untuk mulai, tekan lagi untuk berhenti). Keduanya memakai jalur cepat yang sama. Tombol MASTER tetap untuk hasil akurat dan export.
+5. **Rust:** tidak sekarang. Mulai dari JavaScript. Rust/WASM via GitHub Actions hanya bila prototipe JS terbukti kurang ringan.
 
-1. Prototipe worklet JS 4 tahap, dengan indikator beban CPU dan penghitung gangguan, diukur di HP target.
+Belum diputuskan: nama produk ("Lintang Audio" atau "NADA Master"); pengerjaan berjalan dengan "Lintang Audio" sampai ada keputusan lain.
+
+## 10. Rencana bertahap
+
+1. Prototipe worklet JS 4 tahap (Pre, EQ, kompresor, limiter), dengan indikator beban CPU dan penghitung gangguan, diukur di HP target. Dikerjakan di branch terpisah, tidak digabung ke main tanpa persetujuan.
 2. Tes perbandingan terhadap `renderMaster`.
-3. Integrasi UI: penanda PREVIEW, saklar, sinkron dengan posisi putar, pengaman otomatis.
+3. Integrasi UI: penanda PREVIEW, saklar dan tombol, sinkron dengan posisi putar, pengaman otomatis.
 4. Evaluasi: lanjut JS, atau fase 2 Rust/WASM.
