@@ -2,7 +2,7 @@
 // gain[n] <= ceiling / truePeak(n) is guaranteed by: forward min-hold over the lookahead window, causal moving
 // averages whose total span <= lookahead (each averaged term already covers sample n), and a release envelope
 // that follows downward moves instantly. A slow second envelope (auto release) reduces pumping on sustained limiting.
-import { TPInterp, tpFactorFor } from './oversample.js';
+import { tpScratch, tpFactorFor } from './oversample.js';
 import { dbToLin, tcCoef } from './util.js';
 function minHoldForward(g, out, L) {
   const N = g.length, cap = L + 2, dq = new Int32Array(cap); let head = 0, size = 0;
@@ -24,7 +24,8 @@ function movingAvg(a, len, pad) {
 export const LIM_STYLES = { transparent: { slow: 5, double: true }, balanced: { slow: 3, double: true }, punchy: { slow: 2, double: false } };
 export function runLimiter(chans, p, fs, opts = {}) {
   const N = chans[0].length, ceil = dbToLin(p.ceilingDb - 0.02 - (opts.marginDb || 0));
-  const F = p.tpDetect === false ? 1 : tpFactorFor(fs), tp = new TPInterp(F), seg = new Float32Array(N), tmp = new Float32Array(N);
+  const F = p.tpDetect === false ? 1 : tpFactorFor(fs), sc = tpScratch(opts.scratch, N, F, true), tp = sc.tp, seg = sc.seg, tmp = sc.tmp;
+  seg.fill(0); // scratch dipakai ulang antar pass; tmp ditimpa penuh oleh segMax
   for (const x of chans) { tp.segMax(x, tmp, ceil); for (let i = 0; i < N; i++) if (tmp[i] > seg[i]) seg[i] = tmp[i]; }
   const g = tmp; let prev = 0;
   for (let i = 0; i < N; i++) { const s = seg[i], pk = s > prev ? s : prev; prev = s; g[i] = pk > ceil ? ceil / pk : 1; }

@@ -65,6 +65,15 @@ function tpPhases(F, taps, beta) {
   for (let p = 1; p < F; p++) { const u = p / F, c = new Float64Array(taps); let s = 0; for (let j = 0; j < taps; j++) { const t = u - (j - (h - 1)); c[j] = sinc(t) * kaiserWin(t / h, beta); s += c[j]; } for (let j = 0; j < taps; j++) c[j] /= s; ph.push(c); }
   return ph;
 }
+// Buffer kerja untuk pass limiter/true-peak yang diulang (pencarian loudness). Tanpa `sc` tiap panggilan mengalokasi sendiri seperti dulu.
+// seg tidak dibersihkan di sini: pemanggil yang mengakumulasi ke seg wajib memanggil seg.fill(0).
+export function tpScratch(sc, N, F, needTmp) {
+  const s = sc || {};
+  if (!s.seg || s.seg.length !== N) s.seg = new Float32Array(N);
+  if (needTmp && (!s.tmp || s.tmp.length !== N)) s.tmp = new Float32Array(N);
+  if (!s.tp || s.F !== F) { s.tp = new TPInterp(F); s.F = F; }
+  return s;
+}
 export class TPInterp {
   constructor(factor, taps = 48, beta = 8) {
     this.F = factor; this.T = taps; this.h = taps >> 1; this.ph = tpPhases(factor, taps, beta);
@@ -90,7 +99,9 @@ export class TPInterp {
     if (!this.ph.length) { for (let i = 0; i < N; i++) out[i] = Math.abs(x[i]); return; }
     if (!this.cs || !(thr > 0)) { this._run(x, out, this.ph, this.T, this.h, 0, N); return; }
     this._run(x, out, this.cs, 16, 8, 0, N);
-    const h = this.h, D = this.D, dq = new Int32Array(N); let hd = 0, tl = 0;
+    // deque indeks dipakai ulang antar panggilan: isinya selalu ditulis sebelum dibaca, jadi hasil identik
+    if (!this._dq || this._dq.length < N) this._dq = new Int32Array(N);
+    const h = this.h, D = this.D, dq = this._dq; let hd = 0, tl = 0;
     for (let i = -h; i < N; i++) {
       const add = i + h; if (add < N) { const v = Math.abs(x[add]); while (tl > hd && Math.abs(x[dq[tl - 1]]) <= v) tl--; dq[tl++] = add; }
       if (i < 0) continue; while (dq[hd] < i - h + 1) hd++;
