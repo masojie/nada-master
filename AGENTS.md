@@ -98,7 +98,7 @@ t.done();
 ## Deploy
 
 - Repo publik `masojie/nada-master`. Vercel project `nada-master` (alamat produksi https://nada-master.vercel.app), build `node build.mjs`, output `dist`, tanpa framework.
-- Commit baru TIDAK otomatis ter-deploy (integrasi Git Vercel belum menyala). Setelah CI hijau, deploy manual dari commit di `main`, lalu cek bahwa deployment berstatus READY dan commit yang terpasang adalah yang dimaksud.
+- Integrasi Git Vercel aktif: setiap merge ke `main` otomatis membuat deployment production, dan setiap PR mendapat preview. Setelah merge, cek bahwa deployment berstatus READY dan commit yang terpasang adalah yang dimaksud.
 
 ## Definition of done
 
