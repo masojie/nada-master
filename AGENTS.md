@@ -34,7 +34,7 @@ Butuh Node.js 22 atau lebih baru. Tidak ada `npm install`.
 
 ```
 src/engine/     mesin DSP (tanpa DOM, bisa jalan di Node)
-  loudness.js   K-weighting, BS.1770 gating, true peak (TPInterp 16 tap)
+  loudness.js   K-weighting, BS.1770 gating, true peak (TPInterp 48 tap, 4x di bawah 120 kHz, 2x di atasnya)
   limiter.js    limiter true-peak dengan lookahead
   chain.js      render 12 tahap dan pencarian loudness
   modules.js    EQ, kompresor, multiband, saturasi, stereo, tone, clipper
@@ -44,7 +44,7 @@ src/engine/     mesin DSP (tanpa DOM, bisa jalan di Node)
   qc.js         pemeriksaan kualitas otomatis
   codecs.js, flac.js, exporter.js, dither.js, resample.js
 src/presets/    katalog 68 genre, voicing, validator
-src/ui/         index.html, app.js, styles.css (satu-satunya kode yang menyentuh DOM)
+src/ui/         index.html, app.js, styles.css (satu-satunya kode yang menyentuh DOM), ui-util.js (helper murni, diuji di Node)
 src/worker.js   jembatan pesan: decode, pcm, plan, master, export
 build.mjs       bundler buatan sendiri: hasil dist/index.html dan dist/engine-worker.js
 tests/          suite tes (lihat di bawah)
@@ -110,8 +110,8 @@ t.done();
 
 ## Backlog audit (urut prioritas)
 
-1. **Silang-cek meter dengan referensi luar.** Bandingkan LUFS dan true peak dengan `ffmpeg -af ebur128=peak=true` pada sinyal sintetis. Temuan awal: pada material yang di-limit keras, meter engine membaca -1,02 dBTP sedangkan estimator berkernel panjang membaca -0,66 dBTP (edm/loud) dan -0,59 dBTP (metal/loud, 96 kHz). Putuskan acuan yang dipakai, lalu perbaiki limiter atau meter. Ditandai TODO di `t_chain`.
-2. **Alarm palsu QC pada input sunyi.** `mono` dan `dyn` bernilai FAIL untuk file diam. Ditandai TODO di `t_edge`.
+Selesai di audit 2026-11-19 (lihat `docs/AUDIT-2026-11-19.md`): silang-cek true peak (meter dan limiter kini 48 tap, selisih dengan estimator independen <= 0,1 dB) dan alarm palsu QC pada input sunyi. Keduanya kini `t.ok()`.
+
 3. **Kasus tepi dan memori.** Lagu panjang (10 menit atau lebih) di HP, MP3 decode, file 24-bit 192 kHz.
 4. **Kalibrasi preset** dengan audio referensi nyata dan perbandingan telinga.
 5. **Preview cepat.** Render potongan 15 sampai 20 detik saat genre atau style diganti, hasil penuh tetap lewat Re-master.
