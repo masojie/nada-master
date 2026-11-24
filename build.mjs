@@ -37,12 +37,14 @@ function bundle(entry) {
   for (const [abs, src] of mods) out += '__defs[' + JSON.stringify(rel(abs)) + '] = function(__exports){' + NL + src + NL + '};' + NL;
   return out + '__req(' + JSON.stringify(rel(e)) + ');' + NL + '})();' + NL;
 }
-const worker = bundle('src/worker.js'), app = bundle('src/ui/app.js');
-for (const [n, s] of [['worker', worker], ['app', app]]) if (s.toLowerCase().includes('</script')) throw new Error(n + ' bundle contains a closing script tag');
-const css = fs.readFileSync(path.join(ROOT, 'src/ui/styles.css'), 'utf8');
+const worker = bundle('src/worker.js'), worklet = bundle('src/preview/preview-worklet.js'), app = bundle('src/ui/app.js');
+for (const [n, s] of [['worker', worker], ['worklet', worklet], ['app', app]]) if (s.toLowerCase().includes('</script')) throw new Error(n + ' bundle contains a closing script tag');
+// fonts: url(fonts/x.woff2) in styles.css is embedded as a data: URI so dist/index.html stays one self-contained file (no CDN, no request)
+const css = fs.readFileSync(path.join(ROOT, 'src/ui/styles.css'), 'utf8').replace(/url\(fonts\/([A-Za-z0-9_.-]+\.woff2)\)/g, (m, f) => 'url(data:font/woff2;base64,' + fs.readFileSync(path.join(ROOT, 'src/ui/fonts', f)).toString('base64') + ')');
 let html = fs.readFileSync(path.join(ROOT, 'src/ui/index.html'), 'utf8');
 html = html.replace('<!--CSS-->', () => '<style>' + NL + css + NL + '</style>')
   .replace('<!--WORKER-->', () => '<script id=worker-src type=text/plain>' + worker + '</script>')
+  .replace('<!--WORKLET-->', () => '<script id=worklet-src type=text/plain>' + worklet + '</script>')
   .replace('<!--APP-->', () => '<script>' + app + '</script>');
 fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true });
 fs.writeFileSync(path.join(ROOT, 'dist/index.html'), html);
