@@ -76,7 +76,7 @@ const G=[
 // Voicing: tambahan karakter di atas genre apa pun, hanya memakai parameter yang ada di engine.
 export const VOICINGS={
  balanced:{label:'Balanced',desc:'Tanpa perubahan tambahan, titik tengah.',patch:{}},
- vocalClarity:{label:'Vocal Clarity',desc:'Presence vokal naik, mud 300 Hz dikurangi.',patch:{tone:{presenceDb:1.5,clarityDb:-1},sat:{mix:20}}},
+ vocalClarity:{label:'Vocal Clarity',desc:'Presence vokal naik, mud sekitar 400 Hz dikurangi.',patch:{tone:{presenceDb:1.5,clarityDb:-1},sat:{mix:20}}},
  warmAnalog:{label:'Warm Analog',desc:'Low lebih hangat, saturasi tape lebih banyak, high lembut.',patch:{tone:{lowDb:1.5,airDb:-0.5},sat:{type:'tape',driveDb:5,mix:50}}},
  punchy:{label:'Punchy',desc:'Transient dijaga, kompresi lebih cepat dan limiter punchy.',patch:{comp:{attackMs:35,ratio:2.4},limiter:{style:'punchy',releaseMs:70}}},
  bright:{label:'Bright',desc:'Air dan presence naik.',patch:{tone:{airDb:2,presenceDb:1.5}}},

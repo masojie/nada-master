@@ -45,6 +45,8 @@ Demo: https://nada-master.vercel.app
 
 **Mode Simple dan Advanced**: Simple cukup memilih preset lalu Re-master. Advanced menampilkan seluruh rantai proses yang bisa diubah dan di-bypass per tahap.
 
+**Tampilan (Lintang Audio)**: tema krem atau gelap (tombol di header, pilihan diingat di browser), font Archivo dan JetBrains Mono ditanam langsung di `dist/index.html` lewat `build.mjs` dari `src/ui/fonts/` (lisensi OFL ada di folder yang sama), sehingga tetap tanpa CDN atau permintaan jaringan. Advanced berupa 12 unit rak: LCD, knob dengan tombol +/-, fader, switch bypass. Kontrol yang pada kondisi tertentu tidak berpengaruh (misalnya Q pada HP 24 dB) dibuat redup dan nonaktif. Kode ada di `src/ui/rack.js` dan `src/ui/genre-view.js`.
+
 **Rantai proses (sesuai tampilan Advanced)**
 1. Pre-processing
 2. Corrective EQ (minimum atau linear phase)

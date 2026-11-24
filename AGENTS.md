@@ -44,7 +44,8 @@ src/engine/     mesin DSP (tanpa DOM, bisa jalan di Node)
   qc.js         pemeriksaan kualitas otomatis
   codecs.js, flac.js, exporter.js, dither.js, resample.js
 src/presets/    katalog 68 genre, voicing, validator
-src/ui/         index.html, app.js, styles.css (satu-satunya kode yang menyentuh DOM), ui-util.js (helper murni, diuji di Node)
+src/ui/         index.html, app.js, styles.css (satu-satunya kode yang menyentuh DOM), ui-util.js, rack.js, genre-view.js (helper murni berupa string, diuji di Node)
+  fonts/        Archivo dan JetBrains Mono (woff2, lisensi OFL), ditanam ke dist/index.html oleh build.mjs sebagai data URI; jangan pakai CDN
 src/worker.js   jembatan pesan: decode, pcm, plan, master, export
 build.mjs       bundler buatan sendiri: hasil dist/index.html dan dist/engine-worker.js
 tests/          suite tes (lihat di bawah)
@@ -117,3 +118,7 @@ Selesai di audit 2026-11-19 (lihat `docs/AUDIT-2026-11-19.md`): silang-cek true 
 5. **Preview cepat.** Render potongan 15 sampai 20 detik saat genre atau style diganti, hasil penuh tetap lewat Re-master.
 6. **Bundler.** Pertimbangkan esbuild bila bentuk import yang dibatasi mulai mengganggu.
 7. **Lisensi.** Belum ada file LICENSE.
+
+## Live preview (jalur cepat)
+- `src/preview/preview-core.js` (DSP: Pre, EQ, kompresor, limiter; tanpa alokasi di process), `preview-params.js` (settings -> parameter), `preview-opts.js` (gain/ambang dari laporan render atau taksiran), `preview-worklet.js` (AudioWorklet, dibundel jadi teks `worklet-src` oleh build.mjs, dimuat dari Blob).
+- Hanya perkiraan untuk didengar saat mengatur. MASTER/EXPORT tetap memakai `src/engine` (tidak diubah). Tes: `tests/t_preview.mjs`, `tests/t_preview_opts.mjs`.
