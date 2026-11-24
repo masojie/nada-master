@@ -371,7 +371,7 @@ function enhanceSelects() {
 try { const th = localStorage.getItem('lintang-theme'); if (th === 'dark' || th === 'light') root.setAttribute('data-theme', th); } catch (e) {}
 setTheme(root.getAttribute('data-theme') || 'light', false);
 // ---------- tata letak: TAB (5 bagian + bar bawah) atau SCROLL (semua di satu halaman, seperti semula) ----------
-const TAB_OF = { 'Upload audio': 'upload', 'Genre preset': 'preset', 'Processing chain': 'preset', 'Master': 'master', 'Player': 'master', 'Meters': 'analisis', 'Spectrum analyzer': 'analisis', 'Analysis and comparison': 'analisis', 'Detected issues': 'analisis', 'Diagnosis': 'analisis', 'Quality control': 'analisis', 'Export': 'export' };
+const TAB_OF = { 'Upload audio': 'upload', 'Genre preset': 'preset', 'Processing chain': 'master', 'Master': 'master', 'Player': 'master', 'Meters': 'analisis', 'Spectrum analyzer': 'analisis', 'Analysis and comparison': 'analisis', 'Detected issues': 'analisis', 'Diagnosis': 'analisis', 'Quality control': 'analisis', 'Export': 'export' };
 document.querySelectorAll('main.page section[aria-label]').forEach((el) => { const t = TAB_OF[el.getAttribute('aria-label')]; if (t) el.dataset.tab = t; });
 let curTab = 'upload';
 function setTab(t) { curTab = t; const on = document.body.classList.contains('laytab'); document.querySelectorAll('main.page [data-tab]').forEach((el) => el.classList.toggle('th', on && el.dataset.tab !== t)); [...$('tabbar').children].forEach((b) => { const a = b.dataset.t === t; b.classList.toggle('on', a); b.setAttribute('aria-pressed', a); }); window.scrollTo(0, 0); requestAnimationFrame(() => { drawWave(); drawSpec(); kick(); }); }
