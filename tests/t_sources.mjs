@@ -99,7 +99,8 @@ t.ok('setiap nama yang diimpor benar-benar diekspor', missing === 0, missing + '
   for (const file of [...files, path.join(SRC, 'ui/index.html')]) {
     fs.readFileSync(file, 'utf8').split('\n').forEach((raw, idx) => {
       const line = raw.replace(/\/\/.*$/, '');
-      for (const re of FORBIDDEN) if (re.test(line)) hits.push(rel(file) + ':' + (idx + 1) + ' ' + re.source);
+      // satu-satunya pengecualian: service worker (src/pwa/sw.js) memakai fetch hanya untuk berkas aplikasi sendiri (satu origin, dijaga di t_pwa)
+      for (const re of FORBIDDEN) { if (re.source === '\\bfetch\\s*\\(' && rel(file) === 'src/pwa/sw.js') continue; if (re.test(line)) hits.push(rel(file) + ':' + (idx + 1) + ' ' + re.source); }
     });
   }
   t.ok('tidak ada pemanggilan jaringan di sumber (audio diproses lokal)', hits.length === 0, hits.slice(0, 5).join(' | '));
