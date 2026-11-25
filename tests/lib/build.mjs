@@ -14,5 +14,6 @@ export function buildDist() {
     log,
     html: fs.readFileSync(path.join(DIST, 'index.html'), 'utf8'),
     worker: fs.readFileSync(path.join(DIST, 'engine-worker.js'), 'utf8'),
+    worklet: fs.readFileSync(path.join(DIST, 'preview-worklet.js'), 'utf8'),
   };
 }

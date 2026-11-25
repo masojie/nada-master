@@ -31,6 +31,8 @@ const H = {};
 worker.onmessage = (e) => { const h = H[e.data.type]; if (h) h(e.data); };
 worker.onerror = (e) => fail('Engine error: ' + (e.message || 'worker failed'));
 function status(t, c) { $('statusTxt').textContent = t; $('status').className = 'status has ' + (c || ''); }
+// CSP ketat: kalau browser memblokir sesuatu, tampilkan jelas (bukan gagal diam-diam)
+document.addEventListener('securitypolicyviolation', (e) => { console.warn('CSP memblokir', e.violatedDirective, e.blockedURI); status('Diblokir kebijakan keamanan (CSP): ' + e.violatedDirective + (e.blockedURI ? ' · ' + e.blockedURI : ''), 'err'); });
 function fail(msg) { busy(false); status(msg, 'err'); $('progTxt').textContent = msg; }
 function busy(b) { S.busy = b; if (!b) { S.mastering = false; if (typeof updateMasterBtn === 'function') updateMasterBtn(); } $('btnMaster').disabled = b || !S.an; $('btnExport').disabled = b || !S.bufB; document.body.classList.toggle('busy', b); }
 let pgT = 0, pgV = 0, pgCap = 0;
@@ -151,12 +153,11 @@ const pvWant = () => !!(S.bufA && S.settings && S.ab === 'A' && (PV.live || PV.o
 function pvSave() { try { localStorage.setItem('lintang-preview-live', PV.live ? '1' : '0'); } catch (e) {} }
 function pvEnsure() {
   if (PV.node) return Promise.resolve(PV.node); if (PV.loading) return PV.loading;
-  const src = $('worklet-src'); if (!src || !ac || !ac.audioWorklet) { PV.err = 'Preview needs AudioWorklet (not available here)'; pvUi(); return Promise.resolve(null); }
-  const url = URL.createObjectURL(new Blob([src.textContent], { type: 'text/javascript' }));
-  PV.loading = ac.audioWorklet.addModule(url).then(() => {
+  if (!ac || !ac.audioWorklet) { PV.err = 'Preview needs AudioWorklet (not available here)'; pvUi(); return Promise.resolve(null); }
+  PV.loading = ac.audioWorklet.addModule('preview-worklet.js').then(() => {
     const n = new AudioWorkletNode(ac, 'lintang-preview', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 2, channelCountMode: 'explicit', outputChannelCount: [2] });
     n.onprocessorerror = () => pvOff('Preview stopped: processor error'); n.port.onmessage = pvMeter; n.connect(gA); PV.node = n; PV.first = true; PV.err = ''; return n;
-  }).catch((e) => { PV.err = 'Preview unavailable: ' + ((e && e.message) || e); return null; }).finally(() => { URL.revokeObjectURL(url); PV.loading = null; pvRoute(); pvUi(); });
+  }).catch((e) => { PV.err = 'Preview unavailable: ' + ((e && e.message) || e); return null; }).finally(() => { PV.loading = null; pvRoute(); pvUi(); });
   return PV.loading;
 }
 function pvSend() {
