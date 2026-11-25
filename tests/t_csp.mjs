@@ -48,4 +48,5 @@ const sw = fs.readFileSync(path.join(DIST, 'sw.js'), 'utf8');
 t.ok('preview-worklet.js ada di pra-cache service worker (jalan offline)', /PRECACHE = \[[^\]]*'preview-worklet\.js'/.test(sw) && fs.existsSync(path.join(DIST, 'preview-worklet.js')));
 t.ok('dist/preview-worklet.js berisi processor lintang-preview', /registerProcessor\(("|')lintang-preview/.test(worklet));
 t.ok('app menampilkan pelanggaran CSP di status (tidak gagal diam-diam)', /securitypolicyviolation/.test(app));
+t.ok('banner CSP hanya untuk skrip/worker milik sendiri (toolbar Vercel, ekstensi, manifest hanya ke konsol)', /location\.origin/.test(app) && /script-src\|worker-src/.test(app));
 t.done();

@@ -31,8 +31,13 @@ const H = {};
 worker.onmessage = (e) => { const h = H[e.data.type]; if (h) h(e.data); };
 worker.onerror = (e) => fail('Engine error: ' + (e.message || 'worker failed'));
 function status(t, c) { $('statusTxt').textContent = t; $('status').className = 'status has ' + (c || ''); }
-// CSP ketat: kalau browser memblokir sesuatu, tampilkan jelas (bukan gagal diam-diam)
-document.addEventListener('securitypolicyviolation', (e) => { console.warn('CSP memblokir', e.violatedDirective, e.blockedURI); status('Diblokir kebijakan keamanan (CSP): ' + e.violatedDirective + (e.blockedURI ? ' · ' + e.blockedURI : ''), 'err'); });
+// CSP ketat: pelanggaran SKRIP/WORKER milik aplikasi sendiri tampil jelas di status bar (bukan gagal diam-diam).
+// Yang berasal dari luar (toolbar komentar Vercel di Preview, ekstensi browser) atau manifest-src saat Preview diproteksi login hanya dicatat di konsol.
+document.addEventListener('securitypolicyviolation', (e) => {
+  console.warn('CSP memblokir', e.violatedDirective, e.blockedURI);
+  const own = !/^https?:/i.test(e.blockedURI || '') || e.blockedURI.startsWith(location.origin);
+  if (own && /^(script-src|worker-src)/.test(e.violatedDirective)) status('Diblokir kebijakan keamanan (CSP): ' + e.violatedDirective + (e.blockedURI ? ' · ' + e.blockedURI : ''), 'err');
+});
 function fail(msg) { busy(false); status(msg, 'err'); $('progTxt').textContent = msg; }
 function busy(b) { S.busy = b; if (!b) { S.mastering = false; if (typeof updateMasterBtn === 'function') updateMasterBtn(); } $('btnMaster').disabled = b || !S.an; $('btnExport').disabled = b || !S.bufB; document.body.classList.toggle('busy', b); }
 let pgT = 0, pgV = 0, pgCap = 0;
