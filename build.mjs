@@ -46,7 +46,6 @@ const css = fs.readFileSync(path.join(ROOT, 'src/ui/styles.css'), 'utf8').replac
 let html = fs.readFileSync(path.join(ROOT, 'src/ui/index.html'), 'utf8');
 html = html.replace('<!--CSS-->', () => '<style>' + NL + css + NL + '</style>')
   .replace('<!--WORKER-->', () => '<script id=worker-src type=text/plain>' + worker + '</script>')
-  .replace('<!--WORKLET-->', () => '<script id=worklet-src type=text/plain>' + worklet + '</script>')
   .replace('<!--APP-->', () => '<script>' + app + '</script>');
 // ---- PWA: manifest, ikon, service worker, dan skrip pembaruan otomatis ----
 // BUILD_ID = hash isi build: tiap deploy yang isinya berubah menghasilkan sw.js yang berbeda, sehingga browser
@@ -63,6 +62,13 @@ html = html.replace('</head>', () => [
   '<meta name=apple-mobile-web-app-capable content=yes>',
   '<meta name=apple-mobile-web-app-title content="Nada Master">',
 ].join(NL) + NL + '</head>').replace('</body>', () => '<script id=pwa-boot>' + boot + '</script>' + NL + '</body>');
+// ---- CSP ketat: skrip inline hanya jalan bila hash SHA-256-nya cocok (dihitung dari isi build ini) ----
+// Tanpa 'unsafe-inline' / 'unsafe-eval' di script-src, tanpa blob: dan data:, dan tanpa host luar. Blok <script type=text/plain>
+// (teks worker) bukan skrip yang dieksekusi, jadi tidak perlu hash. frame-ancestors tidak bisa lewat <meta>, tetap di vercel.json.
+const execScripts = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)].filter((m) => !/type=text\/plain/.test(m[1]));
+const hashes = execScripts.map((m) => "'sha256-" + crypto.createHash('sha256').update(m[2]).digest('base64') + "'");
+const csp = ["default-src 'none'", "script-src 'self' " + hashes.join(' '), "worker-src 'self' blob:", "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self' data:", "media-src 'self' blob: data:", "manifest-src 'self'", "connect-src 'self' blob: data:", "object-src 'none'", "base-uri 'none'", "form-action 'none'"].join('; ');
+html = html.replace('<meta charset=utf-8>', (m) => m + NL + '<meta http-equiv=Content-Security-Policy content="' + csp + '">');
 const buildId = crypto.createHash('sha256').update(html).update(worker).update(manifest).update(swTpl).digest('hex').slice(0, 12);
 fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true });
 fs.writeFileSync(path.join(ROOT, 'dist/sw.js'), swTpl.split('__BUILD_ID__').join(buildId));
@@ -70,4 +76,5 @@ fs.writeFileSync(path.join(ROOT, 'dist/manifest.webmanifest'), manifest);
 for (const [file, size, maskable] of [['icon-180.png', 180, true], ['icon-192.png', 192, false], ['icon-512.png', 512, false], ['icon-maskable-512.png', 512, true]]) fs.writeFileSync(path.join(ROOT, 'dist', file), makeIcon(size, maskable));
 fs.writeFileSync(path.join(ROOT, 'dist/index.html'), html);
 fs.writeFileSync(path.join(ROOT, 'dist/engine-worker.js'), worker);
+fs.writeFileSync(path.join(ROOT, 'dist/preview-worklet.js'), worklet);
 console.log('dist/index.html ' + Math.round(html.length / 1024) + ' KB (worker ' + Math.round(worker.length / 1024) + ' KB, app ' + Math.round(app.length / 1024) + ' KB), PWA ' + buildId);

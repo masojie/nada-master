@@ -3,7 +3,7 @@
 // dan halaman memuat ulang dirinya (lihat boot.js).
 const BUILD = '__BUILD_ID__';
 const CACHE = 'nada-' + BUILD;
-const PRECACHE = ['./', 'index.html', 'engine-worker.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
+const PRECACHE = ['./', 'index.html', 'engine-worker.js', 'preview-worklet.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 const NAV_TIMEOUT_MS = 4000;
 
 self.addEventListener('install', (e) => {

@@ -96,6 +96,14 @@ t.done();
 - Pengukur di `signals.mjs` (`peakDb`, `rmsDb`, `truePeakDb`) ditulis terpisah dari engine supaya tidak memakai kode yang sedang diuji sebagai alat ukur.
 - Setiap tes baru harus bisa gagal. Uji dengan menyabot kodenya sebentar dan pastikan tes memerah.
 
+## CSP ketat (dibuat build)
+
+- `build.mjs` menyisipkan `<meta http-equiv=Content-Security-Policy>` di `dist/index.html`: `default-src 'none'` dan `script-src 'self'` ditambah hash SHA-256 tiap skrip inline yang dieksekusi (aplikasi dan pwa-boot). Hash dihitung ulang tiap build, jadi mengubah isi skrip tidak butuh langkah tambahan.
+- Dilarang: `eval`, `new Function`, `setTimeout('string')`, atribut handler inline (`onclick=` dan sejenisnya, termasuk di templat `innerHTML`), URL `javascript:`, skrip inline baru di luar `build.mjs`, dan menambah `'unsafe-inline'`, `'unsafe-eval'`, `blob:` atau `data:` ke `script-src`. Dijaga `tests/t_csp.mjs`.
+- Worker mesin dimuat dari Blob (diizinkan `worker-src blob:`). Worklet preview dimuat dari berkas `preview-worklet.js` karena worklet diatur `script-src`, bukan `worker-src`; berkas itu ada di pra-cache service worker.
+- `frame-ancestors` tidak bisa lewat `<meta>`, jadi tetap di `vercel.json`. `style-src` masih `'unsafe-inline'` (ada atribut `style=` di templat): celah yang diketahui, tetapi injeksi gaya tidak menjalankan skrip.
+- Kalau browser memblokir sesuatu, status bar menampilkan "Diblokir kebijakan keamanan (CSP): ..." dan konsol mencatat arahan yang dilanggar.
+
 ## Deploy
 
 - Repo publik `masojie/nada-master`. Vercel project `nada-master` (alamat produksi https://nada-master.vercel.app), build `node build.mjs`, output `dist`, tanpa framework.
