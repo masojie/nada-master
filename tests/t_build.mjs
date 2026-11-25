@@ -16,12 +16,13 @@ t.atMost('ukuran index.html di bawah anggaran', html.length / 1024, BUDGET_KB, '
 t.atMost('ukuran engine-worker.js di bawah anggaran', worker.length / 1024, BUDGET_KB, ' KB');
 for (const ph of ['<!--CSS-->', '<!--WORKER-->', '<!--WORKLET-->', '<!--APP-->']) t.ok('placeholder ' + ph + ' sudah diganti', !html.includes(ph));
 t.ok('ada <style> hasil inline', /<style>[\s\S]+<\/style>/.test(html));
-t.ok('tidak ada <script src=...> atau <link href=...> eksternal (satu file mandiri)', !/<script[^>]+\bsrc=/i.test(html) && !/<link[^>]+\bhref=/i.test(html));
+const links = [...html.matchAll(/<link[^>]*>/gi)].map((m) => m[0]);
+t.ok('tidak ada <script src=...> eksternal; <link> hanya manifest/ikon PWA satu origin', !/<script[^>]+\bsrc=/i.test(html) && links.every((l) => /rel="?(manifest|icon|apple-touch-icon)\b/i.test(l) && !/href="?(https?:)?\/\//i.test(l)), 'link=' + links.length);
 
 t.section('sintaks JavaScript');
 const scripts = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)].map((m) => ({ attrs: m[1].trim(), code: m[2] }));
-t.ok('ada tiga script inline (worker teks + worklet teks + aplikasi)', scripts.length === 3, 'jumlah=' + scripts.length);
-const workerScript = scripts.find((s) => /worker-src/.test(s.attrs)), workletScript = scripts.find((s) => /worklet-src/.test(s.attrs)), appScript = scripts.find((s) => !/worker-src|worklet-src/.test(s.attrs));
+t.ok('ada empat script inline (worker teks + worklet teks + aplikasi + pwa-boot)', scripts.length === 4, 'jumlah=' + scripts.length);
+const workerScript = scripts.find((s) => /worker-src/.test(s.attrs)), workletScript = scripts.find((s) => /worklet-src/.test(s.attrs)), appScript = scripts.find((s) => !/worker-src|worklet-src|pwa-boot/.test(s.attrs));
 t.ok('script worklet-src bertipe text/plain dan memuat registerProcessor', !!workletScript && /text\/plain/.test(workletScript.attrs) && /registerProcessor\("lintang-preview"|registerProcessor\('lintang-preview'/.test(workletScript.code));
 t.ok('worklet tidak memakai API jaringan', !!workletScript && !/\b(fetch\s*\(|XMLHttpRequest|WebSocket|sendBeacon|importScripts)\b/.test(workletScript.code));
 t.ok('worklet lolos parse', !!workletScript && (() => { try { new vm.Script(workletScript.code, { filename: 'worklet' }); return true; } catch (e) { return false; } })());

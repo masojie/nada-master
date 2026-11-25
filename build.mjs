@@ -2,6 +2,8 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
+import { makeIcon } from './src/pwa/icons.mjs';
 const ROOT = path.dirname(fileURLToPath(import.meta.url)), NL = String.fromCharCode(10);
 const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
 const isId = (c) => /[A-Za-z0-9_$]/.test(c);
@@ -46,7 +48,26 @@ html = html.replace('<!--CSS-->', () => '<style>' + NL + css + NL + '</style>')
   .replace('<!--WORKER-->', () => '<script id=worker-src type=text/plain>' + worker + '</script>')
   .replace('<!--WORKLET-->', () => '<script id=worklet-src type=text/plain>' + worklet + '</script>')
   .replace('<!--APP-->', () => '<script>' + app + '</script>');
+// ---- PWA: manifest, ikon, service worker, dan skrip pembaruan otomatis ----
+// BUILD_ID = hash isi build: tiap deploy yang isinya berubah menghasilkan sw.js yang berbeda, sehingga browser
+// mengenali versi baru dan aplikasi yang sudah terpasang memperbarui dirinya sendiri.
+const pwa = (n) => fs.readFileSync(path.join(ROOT, 'src/pwa', n), 'utf8');
+const manifest = pwa('manifest.webmanifest'), swTpl = pwa('sw.js'), boot = pwa('boot.js');
+if (boot.toLowerCase().includes('</script')) throw new Error('boot.js contains a closing script tag');
+html = html.replace('</head>', () => [
+  '<link rel=manifest href=manifest.webmanifest>',
+  '<link rel=icon type=image/png sizes=192x192 href=icon-192.png>',
+  '<link rel=apple-touch-icon href=icon-180.png>',
+  '<meta name=theme-color content=#17171A>',
+  '<meta name=mobile-web-app-capable content=yes>',
+  '<meta name=apple-mobile-web-app-capable content=yes>',
+  '<meta name=apple-mobile-web-app-title content="Nada Master">',
+].join(NL) + NL + '</head>').replace('</body>', () => '<script id=pwa-boot>' + boot + '</script>' + NL + '</body>');
+const buildId = crypto.createHash('sha256').update(html).update(worker).update(manifest).update(swTpl).digest('hex').slice(0, 12);
 fs.mkdirSync(path.join(ROOT, 'dist'), { recursive: true });
+fs.writeFileSync(path.join(ROOT, 'dist/sw.js'), swTpl.split('__BUILD_ID__').join(buildId));
+fs.writeFileSync(path.join(ROOT, 'dist/manifest.webmanifest'), manifest);
+for (const [file, size, maskable] of [['icon-180.png', 180, true], ['icon-192.png', 192, false], ['icon-512.png', 512, false], ['icon-maskable-512.png', 512, true]]) fs.writeFileSync(path.join(ROOT, 'dist', file), makeIcon(size, maskable));
 fs.writeFileSync(path.join(ROOT, 'dist/index.html'), html);
 fs.writeFileSync(path.join(ROOT, 'dist/engine-worker.js'), worker);
-console.log('dist/index.html ' + Math.round(html.length / 1024) + ' KB (worker ' + Math.round(worker.length / 1024) + ' KB, app ' + Math.round(app.length / 1024) + ' KB)');
+console.log('dist/index.html ' + Math.round(html.length / 1024) + ' KB (worker ' + Math.round(worker.length / 1024) + ' KB, app ' + Math.round(app.length / 1024) + ' KB), PWA ' + buildId);
